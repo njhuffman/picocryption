@@ -1,0 +1,13 @@
+examples:
+  - test_1:
+    # Advanced settings: none
+    - decrypted_file: empty.txt
+    - encrypted_file: test_1.txt.pcv
+    - password: baz
+    - keyfiles: []
+  - test_2:
+    # Advanced settings: Reed Solomon
+    - decrypted_file: foo
+    - encrypted_file: bar
+    - password: baz
+    - keyfiles: []
