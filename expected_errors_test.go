@@ -44,7 +44,7 @@ func TestIncorrectKeyfiles(t *testing.T) {
 	rand.Read(wrongKeyfileData)
 	defer reader.Close()
 	_, err = Decrypt(",./<>?", []io.Reader{bytes.NewBuffer(wrongKeyfileData)}, reader, bytes.NewBuffer([]byte{}), false, false, nil)
-	if !errors.Is(err, ErrIncorrectKeyfiles) {
+	if !errors.Is(err, ErrIncorrectOrMisorderedKeyfiles) {
 		t.Fatal("expected wrong password, got", err)
 	}
 }

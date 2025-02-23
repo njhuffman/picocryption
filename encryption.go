@@ -13,6 +13,7 @@ const maxCommentsLength = 99999
 var ErrHeaderUnparsable = errors.New("header unparsable")
 var ErrIncorrectPassword = errors.New("incorrect password")
 var ErrIncorrectKeyfiles = errors.New("incorrect keyfiles")
+var ErrIncorrectOrMisorderedKeyfiles = errors.New("incorrect or misordered keyfiles")
 var ErrKeyfilesRequired = errors.New("missing required keyfiles")
 var ErrDuplicateKeyfiles = errors.New("duplicate keyfiles")
 var ErrKeyfilesNotRequired = errors.New("keyfiles not required")

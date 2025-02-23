@@ -103,6 +103,9 @@ func validateKeys(header header, password string, keyfiles []io.Reader) (keys, e
 		return keys, ErrIncorrectPassword
 	}
 	if header.usesKf && !bytes.Equal(keys.keyfileRef[:], header.refs.keyfileRef[:]) {
+		if header.settings.OrderedKf {
+			return keys, ErrIncorrectOrMisorderedKeyfiles
+		}
 		return keys, ErrIncorrectKeyfiles
 	}
 	return keys, nil
