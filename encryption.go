@@ -8,6 +8,7 @@ import (
 )
 
 const readSize = 1 << 20
+const maxCommentsLength = 99999
 
 var ErrHeaderUnparsable = errors.New("header unparsable")
 var ErrIncorrectPassword = errors.New("incorrect password")
@@ -16,6 +17,7 @@ var ErrKeyfilesRequired = errors.New("missing required keyfiles")
 var ErrDuplicateKeyfiles = errors.New("duplicate keyfiles")
 var ErrKeyfilesNotRequired = errors.New("keyfiles not required")
 var ErrCorrupted = errors.New("data corrupted beyond repair")
+var ErrCommentsTooLong = errors.New("comments exceed maximum length")
 
 type Settings struct {
 	Comments    string
@@ -106,6 +108,9 @@ func EncryptHeadless(
 	out io.Writer,
 	update chan Update,
 ) ([]byte, error) {
+	if len(settings.Comments) > maxCommentsLength {
+		return nil, ErrCommentsTooLong
+	}
 	if update != nil {
 		update <- Update{"Building encryption block", 0, 0}
 	}

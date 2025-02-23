@@ -129,3 +129,18 @@ func TestDamagedButRecoverable(t *testing.T) {
 		t.Fatal("expected damage")
 	}
 }
+
+func TestCommentsTooLong(t *testing.T) {
+	comments := make([]byte, maxCommentsLength+1)
+	_, err := EncryptHeadless(
+		bytes.NewBuffer([]byte{}),
+		"test-password",
+		[]io.Reader{},
+		Settings{Comments: string(comments)},
+		bytes.NewBuffer([]byte{}),
+		nil,
+	)
+	if !errors.Is(err, ErrCommentsTooLong) {
+		t.Fatal("expected ErrCommentsTooLong, got", err)
+	}
+}
