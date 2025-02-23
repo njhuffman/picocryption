@@ -36,7 +36,7 @@ func readVersion(reader io.Reader, password string) (*deniability, bool, error) 
 	raw := make([]byte, versionSize*3)
 	n, err := io.ReadFull(reader, raw)
 	if n == 0 || errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, false, ErrHeaderUnparsable
+		return nil, false, ErrFileTooShort
 	}
 	if err != nil {
 		return nil, false, err
@@ -84,7 +84,7 @@ func readVersion(reader io.Reader, password string) (*deniability, bool, error) 
 	}
 	valid, _ = regexp.Match(`^v1\.\d{2}`, []byte(version))
 	if !valid {
-		return nil, damaged, ErrHeaderUnparsable
+		return nil, true, ErrCorrupted
 	}
 	return deny, damaged, nil
 }
@@ -104,7 +104,7 @@ func readFromHeader(reader io.Reader, size int, deny *deniability) ([]byte, bool
 	}
 	if err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) {
-			return tmp, false, ErrHeaderUnparsable
+			return tmp, false, ErrFileTooShort
 		}
 		return tmp, false, err
 	}

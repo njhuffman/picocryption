@@ -10,7 +10,7 @@ import (
 const readSize = 1 << 20
 const maxCommentsLength = 99999
 
-var ErrHeaderUnparsable = errors.New("header unparsable")
+var ErrFileTooShort = errors.New("file too short")
 var ErrIncorrectPassword = errors.New("incorrect password")
 var ErrIncorrectKeyfiles = errors.New("incorrect keyfiles")
 var ErrIncorrectOrMisorderedKeyfiles = errors.New("incorrect or misordered keyfiles")
@@ -94,11 +94,13 @@ func Decrypt(
 
 func GetEncryptionSettings(r io.Reader) (Settings, error) {
 	header, _, err := readHeader(r, "")
-	// should probably check if error is just incorrect password
-	if err != nil {
-		return Settings{}, fmt.Errorf("reading header: %w", err)
+	if err == nil {
+		return header.settings, nil
 	}
-	return header.settings, nil
+	if errors.Is(err, ErrCorrupted) {
+		return Settings{Deniability: true}, nil
+	}
+	return Settings{}, fmt.Errorf("reading header: %w", err)
 }
 
 func EncryptHeadless(

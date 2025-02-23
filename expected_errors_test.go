@@ -9,17 +9,29 @@ import (
 	"testing"
 )
 
-func TestHeaderUnparsable(t *testing.T) {
-	for size := range []int{0, 10, 100, 1000} {
+func TestFileTooShort(t *testing.T) {
+	for size := range []int{0, 10, 100} {
 		invalidData := make([]byte, size)
 		_, err := rand.Read(invalidData)
 		if err != nil {
 			t.Fatal("creating random data:", err)
 		}
 		_, err = Decrypt("password", []io.Reader{}, bytes.NewBuffer(invalidData), bytes.NewBuffer([]byte{}), false, false, nil)
-		if !errors.Is(err, ErrHeaderUnparsable) {
-			t.Fatal("expected ErrHeaderUnparsable, got", err)
+		if !errors.Is(err, ErrFileTooShort) {
+			t.Fatal("expected ErrFileTooShort, got", err)
 		}
+	}
+}
+
+func TestFileCorrupted(t *testing.T) {
+	invalidData := make([]byte, 1000)
+	_, err := rand.Read(invalidData)
+	if err != nil {
+		t.Fatal("creating random data:", err)
+	}
+	_, err = Decrypt("password", []io.Reader{}, bytes.NewBuffer(invalidData), bytes.NewBuffer([]byte{}), false, false, nil)
+	if !errors.Is(err, ErrCorrupted) {
+		t.Fatal("expected ErrCorrupted, got", err)
 	}
 }
 
