@@ -3,6 +3,7 @@ package picocryption
 import (
 	"crypto/hmac"
 	"hash"
+	"io"
 	"log"
 
 	"github.com/Picocrypt/serpent"
@@ -58,6 +59,7 @@ func newMacStream(keys keys, header *header, encrypting bool) (*macStream, error
 
 type decryptStream struct {
 	password string
+	keyfiles []io.Reader
 	headerStream
 	bodyStream streamer
 }
@@ -91,7 +93,7 @@ func (ds *decryptStream) flush() ([]byte, bool, error) {
 func (ds *decryptStream) makeBodyStream() (streamer, error) {
 	// TODO implement keyfiles
 	log.Println("Expected mac:", ds.header.refs.macTag)
-	keys, err := newKeys(ds.header.settings, ds.header.seeds, ds.password, nil)
+	keys, err := newKeys(ds.header.settings, ds.header.seeds, ds.password, ds.keyfiles)
 	if err != nil {
 		// TODO should I include duplicate keyfiles error here?
 		return nil, err
@@ -132,10 +134,11 @@ func (ds *decryptStream) makeBodyStream() (streamer, error) {
 	return &stackedStream{streams: streams}, nil
 }
 
-func makeDecryptStream(password string) *decryptStream {
+func makeDecryptStream(password string, keyfiles []io.Reader) *decryptStream {
 	header := header{}
 	return &decryptStream{
 		password:     password,
+		keyfiles:     keyfiles,
 		headerStream: makeHeaderStream(password, &header),
 	}
 }

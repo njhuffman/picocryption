@@ -13,7 +13,7 @@ func TestDecryptStream(t *testing.T) {
 	}
 
 	password := "random1048570"
-	s := makeDecryptStream(password)
+	s := makeDecryptStream(password, nil)
 	data, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatal("reading file:", err)

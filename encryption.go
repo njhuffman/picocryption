@@ -44,7 +44,7 @@ func Decrypt(
 	update chan Update,
 ) (bool, error) {
 
-	decryptStream := makeDecryptStream(pw)
+	decryptStream := makeDecryptStream(pw, kf)
 
 	getNow := func() float64 { return float64(time.Now().UnixMilli()) / 1000.0 }
 	start := getNow()
