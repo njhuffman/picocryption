@@ -44,10 +44,7 @@ func Decrypt(
 	update chan Update,
 ) (bool, error) {
 
-	decryptor, damaged, err := newDecryptor(pw, kf, r, skipReedSolomon, update)
-	if err != nil {
-		return damaged, err
-	}
+	decryptStream := makeDecryptStream(pw)
 
 	getNow := func() float64 { return float64(time.Now().UnixMilli()) / 1000.0 }
 	start := getNow()
@@ -65,27 +62,41 @@ func Decrypt(
 		}
 
 		p := make([]byte, readSize)
-		ri, dmg, err := decryptor.read(p)
-		if dmg {
-			damaged = true
+		n, err := r.Read(p)
+		eof := false
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				eof = true
+			} else {
+				return false, fmt.Errorf("reading input: %w", err)
+			}
 		}
-		eof := errors.Is(err, io.EOF)
-		if (err != nil) && (err != io.EOF) {
+		p, damaged, err := decryptStream.stream(p[:n])
+		if err != nil {
 			if errors.Is(err, ErrCorrupted) && ignoreCorruption {
 				corruptionIgnored = true
 			} else {
 				return damaged, err
 			}
 		}
-		_, err = w.Write(p[:ri])
+		_, err = w.Write(p)
 		if err != nil {
 			return damaged, err
 		}
-		count += ri
-		total += ri
+		count += len(p)
+		total += len(p)
 		if eof {
 			if corruptionIgnored {
 				return damaged, ErrCorrupted
+			}
+			p, dmg, err := decryptStream.flush()
+			damaged = damaged || dmg
+			if err != nil {
+				return damaged, err
+			}
+			_, err = w.Write(p)
+			if err != nil {
+				return damaged, err
 			}
 			return damaged, nil
 		}

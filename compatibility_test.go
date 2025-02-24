@@ -172,6 +172,10 @@ func testDecryption(example Example, t *testing.T) {
 		t.Fatal("reading decrypted file: %w", err)
 	}
 	if !bytes.Equal(result, expected) {
+		log.Println("Len result:  ", len(result))
+		log.Println("Len expected:", len(expected))
+		log.Println("Start of result:", result[:10])
+		log.Println("Start of expected:", expected[:10])
 		t.Fatal("decrypted data does not match")
 	}
 }
