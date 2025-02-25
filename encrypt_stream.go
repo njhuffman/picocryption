@@ -2,8 +2,6 @@ package picocryption
 
 import (
 	"fmt"
-
-	"github.com/Picocrypt/serpent"
 )
 
 type encryptStream struct {
@@ -27,37 +25,35 @@ func makeEncryptStream(settings Settings, seeds seeds, password string) (*encryp
 	if err != nil {
 		return nil, fmt.Errorf("generating keys: %w", err)
 	}
-	nonceManager := newNonceManager(keys)
+
 	streams := []streamer{}
-	if header.settings.Paranoid {
-		sb, err := serpent.NewCipher(keys.serpentKey[:])
-		if err != nil {
-			return nil, fmt.Errorf("creating serpent cipher: %w", err)
-		}
-		streams = append(streams, &rotatingCipher{
-			xorCipher: &serpentCipher{
-				serpentBlock: sb,
-				nonceManager: nonceManager,
-				header:       &header,
-			},
-		})
+
+	encryptionStream, err := newEncryptionStream(keys, &header)
+	if err != nil {
+		return nil, fmt.Errorf("creating encryption stream: %w", err)
 	}
-	streams = append(streams, &rotatingCipher{
-		xorCipher: &chachaCipher{
-			nonceManager: nonceManager,
-			key:          keys.key[:],
-		},
-	})
+	streams = append(streams, encryptionStream)
+
 	macStream, err := newMacStream(keys, &header, true)
 	if err != nil {
 		return nil, fmt.Errorf("creating mac stream: %w", err)
 	}
 	streams = append(streams, macStream)
-	// TODO: add reed solomon if configured
+
 	if settings.ReedSolomon {
 		streams = append(streams, makeRSEncodeStream())
 	}
-	// TODO: add deniability if configured
+
+	if settings.Deniability {
+		deniabilityStream := newDeniabilityStream(password, &header)
+		mockHeaderData := make([]byte, baseHeaderSize+3*len(settings.Comments))
+		_, _, err := deniabilityStream.stream(mockHeaderData)
+		if err != nil {
+			return nil, fmt.Errorf("seeding deniability stream: %w", err)
+		}
+		streams = append(streams, deniabilityStream)
+	}
+
 	return &encryptStream{
 		header:  &header,
 		streams: stackedStream{streams: streams},

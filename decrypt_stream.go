@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 
-	"github.com/Picocrypt/serpent"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/sha3"
 )
@@ -99,7 +98,6 @@ func (ds *decryptStream) makeBodyStream() (streamer, error) {
 		return nil, err
 	}
 	// TODO verify that the keyRef matches the header
-	nonceManager := newNonceManager(keys)
 	streams := []streamer{}
 	// TODO: add reed solomon if configured
 	if ds.header.settings.ReedSolomon {
@@ -110,27 +108,11 @@ func (ds *decryptStream) makeBodyStream() (streamer, error) {
 		return nil, err
 	}
 	streams = append(streams, macStream)
-	streams = append(streams,
-		&rotatingCipher{
-			xorCipher: &chachaCipher{
-				nonceManager: nonceManager,
-				key:          keys.key[:],
-			},
-		},
-	)
-	if ds.header.settings.Paranoid {
-		sb, err := serpent.NewCipher(keys.serpentKey[:])
-		if err != nil {
-			return nil, err
-		}
-		streams = append(streams, &rotatingCipher{
-			xorCipher: &serpentCipher{
-				serpentBlock: sb,
-				nonceManager: nonceManager,
-				header:       ds.header,
-			},
-		})
+	encryptionStream, err := newEncryptionStream(keys, ds.header)
+	if err != nil {
+		return nil, err
 	}
+	streams = append(streams, encryptionStream)
 	return &stackedStream{streams: streams}, nil
 }
 

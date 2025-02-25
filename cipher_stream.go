@@ -2,18 +2,29 @@ package picocryption
 
 import (
 	"crypto/cipher"
+	"fmt"
 	"io"
 
+	"github.com/Picocrypt/serpent"
 	"golang.org/x/crypto/chacha20"
+	"golang.org/x/crypto/sha3"
 )
 
-type nonceManager struct {
+type nonceManager interface {
+	nonce(i int) ([24]byte, error)
+}
+
+type ivManager interface {
+	iv(i int) ([16]byte, error)
+}
+
+type nonceIvManager struct {
 	chachaNonces [][24]byte
 	serpentIVs   [][16]byte
 	hkdf         io.Reader
 }
 
-func (nm *nonceManager) extendTo(i int) error {
+func (nm *nonceIvManager) extendTo(i int) error {
 	for i >= len(nm.chachaNonces) {
 		chachaNonce := [24]byte{}
 		serpentIV := [16]byte{}
@@ -31,7 +42,7 @@ func (nm *nonceManager) extendTo(i int) error {
 	return nil
 }
 
-func (nm *nonceManager) chachaNonce(i int) ([24]byte, error) {
+func (nm *nonceIvManager) nonce(i int) ([24]byte, error) {
 	err := nm.extendTo(i)
 	if err != nil {
 		return [24]byte{}, err
@@ -39,7 +50,7 @@ func (nm *nonceManager) chachaNonce(i int) ([24]byte, error) {
 	return nm.chachaNonces[i], nil
 }
 
-func (nm *nonceManager) serpentIV(i int) ([16]byte, error) {
+func (nm *nonceIvManager) iv(i int) ([16]byte, error) {
 	err := nm.extendTo(i)
 	if err != nil {
 		return [16]byte{}, err
@@ -47,8 +58,8 @@ func (nm *nonceManager) serpentIV(i int) ([16]byte, error) {
 	return nm.serpentIVs[i], nil
 }
 
-func newNonceManager(keys keys) *nonceManager {
-	nm := &nonceManager{
+func newNonceManager(keys keys) *nonceIvManager {
+	nm := &nonceIvManager{
 		hkdf:         keys.hkdf,
 		chachaNonces: [][24]byte{keys.seeds.nonce},
 		serpentIVs:   [][16]byte{keys.seeds.serpentIV},
@@ -56,15 +67,46 @@ func newNonceManager(keys keys) *nonceManager {
 	return nm
 }
 
+type denyNonceManager struct {
+	nonces [][24]byte
+	header *header
+}
+
+func (dnm *denyNonceManager) extendTo(i int) error {
+	if len(dnm.nonces) == 0 {
+		dnm.nonces = append(dnm.nonces, dnm.header.seeds.denyNonce)
+	}
+	for i >= len(dnm.nonces) {
+		previous := dnm.nonces[len(dnm.nonces)-1]
+		tmp := sha3.New256()
+		_, err := tmp.Write(previous[:])
+		if err != nil {
+			return err
+		}
+		nonce := [24]byte{}
+		copy(nonce[:], tmp.Sum(nil))
+		dnm.nonces = append(dnm.nonces, nonce)
+	}
+	return nil
+}
+
+func (dnm *denyNonceManager) nonce(i int) ([24]byte, error) {
+	err := dnm.extendTo(i)
+	if err != nil {
+		return [24]byte{}, err
+	}
+	return dnm.nonces[i], nil
+}
+
 type serpentCipher struct {
 	serpentBlock cipher.Block
 	cipher       cipher.Stream
-	nonceManager *nonceManager
+	ivManager    ivManager
 	header       *header
 }
 
 func (sc *serpentCipher) reset(i int) error {
-	serpentIV, err := sc.nonceManager.serpentIV(i)
+	serpentIV, err := sc.ivManager.iv(i)
 	if err != nil {
 		return err
 	}
@@ -81,12 +123,12 @@ func (sc *serpentCipher) xor(p []byte) error {
 
 type chachaCipher struct {
 	cipher       *chacha20.Cipher
-	nonceManager *nonceManager
+	nonceManager nonceManager
 	key          []byte
 }
 
 func (cc *chachaCipher) reset(i int) error {
-	nonce, err := cc.nonceManager.chachaNonce(i)
+	nonce, err := cc.nonceManager.nonce(i)
 	if err != nil {
 		return err
 	}
@@ -113,7 +155,7 @@ type rotatingCipher struct {
 
 func (rc *rotatingCipher) stream(p []byte) ([]byte, bool, error) {
 	if !rc.initialised {
-		err := rc.reset(0)
+		err := rc.xorCipher.reset(0)
 		if err != nil {
 			return nil, false, err
 		}
@@ -142,4 +184,40 @@ func (rc *rotatingCipher) stream(p []byte) ([]byte, bool, error) {
 
 func (rc *rotatingCipher) flush() ([]byte, bool, error) {
 	return nil, false, nil
+}
+
+func newDeniabilityStream(password string, header *header) streamer {
+	nonceManager := denyNonceManager{header: header}
+	denyKey := generateDenyKey(password, header.seeds.denySalt)
+	return &rotatingCipher{
+		xorCipher: &chachaCipher{
+			nonceManager: &nonceManager,
+			key:          denyKey[:],
+		},
+	}
+}
+
+func newEncryptionStream(keys keys, header *header) (streamer, error) {
+	nonceIvManager := newNonceManager(keys)
+	chachaStream := &rotatingCipher{
+		xorCipher: &chachaCipher{
+			nonceManager: nonceIvManager,
+			key:          keys.key[:],
+		},
+	}
+	if !header.settings.Paranoid {
+		return chachaStream, nil
+	}
+	sb, err := serpent.NewCipher(keys.serpentKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("creating serpent cipher: %w", err)
+	}
+	serpentStream := &rotatingCipher{
+		xorCipher: &serpentCipher{
+			serpentBlock: sb,
+			ivManager:    nonceIvManager,
+			header:       header,
+		},
+	}
+	return &stackedStream{streams: []streamer{chachaStream, serpentStream}}, nil
 }
