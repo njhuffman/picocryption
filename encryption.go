@@ -133,9 +133,9 @@ func EncryptHeadless(
 		return nil, fmt.Errorf("generating seeds: %w", err)
 	}
 
-	encryptor, err := newEncryptor(out, settings, seeds, password, keyfiles)
+	encryptionStream, err := makeEncryptStream(settings, seeds, password)
 	if err != nil {
-		return nil, fmt.Errorf("creating encryptor: %w", err)
+		return nil, fmt.Errorf("making encryption stream: %w", err)
 	}
 
 	getNow := func() float64 { return float64(time.Now().UnixMilli()) / 1000.0 }
@@ -163,25 +163,33 @@ func EncryptHeadless(
 		}
 		count += n
 		total += n
-		err = encryptor.write(buf[:n])
+		p, _, err := encryptionStream.stream(buf[:n])
 		if err != nil {
 			return nil, fmt.Errorf("encrypting input: %w", err)
+		}
+		_, err = out.Write(p)
+		if err != nil {
+			return nil, fmt.Errorf("writing output: %w", err)
 		}
 		if eof {
 			break
 		}
 	}
 
-	err = encryptor.close()
+	p, _, err := encryptionStream.flush()
 	if err != nil {
 		return nil, fmt.Errorf("closing encryptor: %w", err)
 	}
-
-	header, err := encryptor.makeHeader()
+	_, err = out.Write(p)
 	if err != nil {
-		return header, fmt.Errorf("making header: %w", err)
+		return nil, fmt.Errorf("writing output: %w", err)
 	}
-	return header, nil
+
+	headerBytes, err := encryptionStream.header.bytes(password)
+	if err != nil {
+		return nil, fmt.Errorf("making header: %w", err)
+	}
+	return headerBytes, nil
 }
 
 func PrependHeader(
