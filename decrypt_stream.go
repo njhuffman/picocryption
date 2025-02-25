@@ -17,7 +17,6 @@ type macStream struct {
 }
 
 func (ms *macStream) stream(p []byte) ([]byte, bool, error) {
-	log.Println("Writing to mac stream:", len(p))
 	_, err := ms.mac.Write(p)
 	if err != nil {
 		return nil, false, err
@@ -26,7 +25,6 @@ func (ms *macStream) stream(p []byte) ([]byte, bool, error) {
 }
 
 func (ms *macStream) flush() ([]byte, bool, error) {
-	log.Println("Flushing mac stream")
 	m := ms.mac.Sum(nil)
 	if ms.encrypting {
 		log.Println("Saving mac tag")
@@ -64,9 +62,7 @@ type decryptStream struct {
 }
 
 func (ds *decryptStream) stream(p []byte) ([]byte, bool, error) {
-	log.Println("Len before header stream: ", len(p))
 	p, damaged, err := ds.headerStream.stream(p)
-	log.Println("Len after header stream: ", len(p))
 	if err != nil {
 		return nil, damaged, err
 	}
@@ -91,7 +87,6 @@ func (ds *decryptStream) flush() ([]byte, bool, error) {
 
 func (ds *decryptStream) makeBodyStream() (streamer, error) {
 	// TODO implement keyfiles
-	log.Println("Expected mac:", ds.header.refs.macTag)
 	keys, err := newKeys(ds.header.settings, ds.header.seeds, ds.password, ds.keyfiles)
 	if err != nil {
 		// TODO should I include duplicate keyfiles error here?
