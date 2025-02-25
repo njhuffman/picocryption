@@ -188,7 +188,7 @@ flowchart LR
 
 ## Low Detail View
 
-Low detail view of the `Encryption Stream`
+Low detail view of the `Encryption Stream`. It is very similar to running the `Decryption Stream` in reverse. Data is first passed through `Primary Encryption` (ChaCha20, plus Serpent if paranoid). Then a mac is computed and saved to the header to check against when decrypting. Then Reed-Solomon bytes are added if requested. Then everything is passed through `Deniability Wrapper` (another ChaCha20) if requested. The output bytes are the full body, ready to be appended to the header bytes, which can now be computed.
 
 ```mermaid
 flowchart TB
