@@ -16,6 +16,12 @@ const (
 	flagsSize      = 5
 )
 
+type refs struct {
+	keyRef     [64]byte
+	keyfileRef [32]byte
+	macTag     [64]byte
+}
+
 type header struct {
 	settings Settings
 	seeds    seeds

@@ -1,7 +1,9 @@
 package picocryption
 
 import (
+	"bytes"
 	"crypto/hmac"
+	"errors"
 	"hash"
 	"io"
 	"log"
@@ -87,7 +89,7 @@ func (ds *decryptStream) flush() ([]byte, error) {
 
 func (ds *decryptStream) makeBodyStreams() ([]streamerFlusher, error) {
 	// TODO implement keyfiles
-	keys, err := newKeys(ds.header.settings, ds.header.seeds, ds.password, ds.keyfiles)
+	keys, err := validateKeys(ds.header, ds.password, ds.keyfiles)
 	if err != nil {
 		// TODO should I include duplicate keyfiles error here?
 		return nil, err
@@ -118,4 +120,27 @@ func makeDecryptStream(password string, keyfiles []io.Reader, damageTracker *dam
 		keyfiles:     keyfiles,
 		headerStream: makeHeaderStream(password, &header, damageTracker),
 	}
+}
+
+func validateKeys(header *header, password string, keyfiles []io.Reader) (keys, error) {
+	if header.usesKf && len(keyfiles) == 0 {
+		return keys{}, ErrKeyfilesRequired
+	}
+	if !header.usesKf && len(keyfiles) > 0 {
+		return keys{}, ErrKeyfilesNotRequired
+	}
+	keys, err := newKeys(header.settings, header.seeds, password, keyfiles)
+	if err != nil && !errors.Is(err, ErrDuplicateKeyfiles) {
+		return keys, err
+	}
+	if !bytes.Equal(keys.keyRef[:], header.refs.keyRef[:]) {
+		return keys, ErrIncorrectPassword
+	}
+	if header.usesKf && !bytes.Equal(keys.keyfileRef[:], header.refs.keyfileRef[:]) {
+		if header.settings.OrderedKf {
+			return keys, ErrIncorrectOrMisorderedKeyfiles
+		}
+		return keys, ErrIncorrectKeyfiles
+	}
+	return keys, nil
 }
