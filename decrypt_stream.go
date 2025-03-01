@@ -58,7 +58,7 @@ type decryptStream struct {
 	password string
 	keyfiles []io.Reader
 	headerStream
-	bodyStream streamer
+	bodyStreams []streamerFlusher
 }
 
 func (ds *decryptStream) stream(p []byte) ([]byte, error) {
@@ -67,25 +67,25 @@ func (ds *decryptStream) stream(p []byte) ([]byte, error) {
 		return nil, err
 	}
 	if ds.headerStream.isDone() {
-		if ds.bodyStream == nil {
-			ds.bodyStream, err = ds.makeBodyStream()
+		if ds.bodyStreams == nil {
+			ds.bodyStreams, err = ds.makeBodyStreams()
 			if err != nil {
 				return nil, err
 			}
 		}
-		return ds.bodyStream.stream(p)
+		return streamStack(ds.bodyStreams, p)
 	}
 	return p, nil
 }
 
 func (ds *decryptStream) flush() ([]byte, error) {
-	if ds.bodyStream == nil {
+	if ds.bodyStreams == nil {
 		return nil, nil
 	}
-	return ds.bodyStream.flush()
+	return flushStack(ds.bodyStreams)
 }
 
-func (ds *decryptStream) makeBodyStream() (streamer, error) {
+func (ds *decryptStream) makeBodyStreams() ([]streamerFlusher, error) {
 	// TODO implement keyfiles
 	keys, err := newKeys(ds.header.settings, ds.header.seeds, ds.password, ds.keyfiles)
 	if err != nil {
@@ -93,7 +93,7 @@ func (ds *decryptStream) makeBodyStream() (streamer, error) {
 		return nil, err
 	}
 	// TODO verify that the keyRef matches the header
-	streams := []streamer{}
+	streams := []streamerFlusher{}
 	// TODO: add reed solomon if configured
 	if ds.header.settings.ReedSolomon {
 		streams = append(streams, makeRSDecodeStream(false))
@@ -103,12 +103,12 @@ func (ds *decryptStream) makeBodyStream() (streamer, error) {
 		return nil, err
 	}
 	streams = append(streams, macStream)
-	encryptionStream, err := newEncryptionStream(keys, ds.header)
+	encryptionStreams, err := newEncryptionStreams(keys, ds.header)
 	if err != nil {
 		return nil, err
 	}
-	streams = append(streams, encryptionStream)
-	return &stackedStream{streams: streams}, nil
+	streams = append(streams, encryptionStreams...)
+	return streams, nil
 }
 
 func makeDecryptStream(password string, keyfiles []io.Reader, damageTracker *damageTracker) *decryptStream {

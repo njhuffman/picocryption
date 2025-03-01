@@ -11,11 +11,6 @@ type damageTracker struct {
 	damage bool
 }
 
-type streamer interface {
-	stream(p []byte) ([]byte, error)
-	flush() ([]byte, error)
-}
-
 type buffer struct {
 	size int
 	data []byte
@@ -63,10 +58,6 @@ func (v *versionReader) stream(p []byte) ([]byte, error) {
 		}
 	}
 	return p, nil
-}
-
-func (v *versionReader) flush() ([]byte, error) {
-	return nil, nil
 }
 
 func makeVersionReader(damageTracker *damageTracker) versionReader {
@@ -118,10 +109,6 @@ func (d *deniabilityReader) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func (d *deniabilityReader) flush() ([]byte, error) {
-	return nil, nil
-}
-
 func makeDeniabilityReader(password string, header *header) deniabilityReader {
 	return deniabilityReader{
 		password: password,
@@ -156,10 +143,6 @@ func (f *flagStream) stream(p []byte) ([]byte, error) {
 		}
 	}
 	return p, nil
-}
-
-func (f *flagStream) flush() ([]byte, error) {
-	return nil, nil
 }
 
 func makeFlagStream(header *header, damageTracker *damageTracker) flagStream {
@@ -220,10 +203,6 @@ func (c *commentStream) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func (c *commentStream) flush() ([]byte, error) {
-	return nil, nil
-}
-
 func makeCommentStream(header *header, damageTracker *damageTracker) commentStream {
 	return commentStream{
 		lenBuff:       buffer{size: commentSize * 3},
@@ -257,49 +236,12 @@ func (s *sliceStream) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func (s *sliceStream) flush() ([]byte, error) {
-	return nil, nil
-}
-
 func makeSliceStream(slice []byte, damagedTracker *damageTracker) sliceStream {
 	return sliceStream{
 		buff:          buffer{size: len(slice) * 3},
 		slice:         slice,
 		damageTracker: damagedTracker,
 	}
-}
-
-type stackedStream struct {
-	streams []streamer
-}
-
-func (s *stackedStream) stream(p []byte) ([]byte, error) {
-	for _, stream := range s.streams {
-		p, err := stream.stream(p)
-		if err != nil {
-			return nil, err
-		}
-		if len(p) == 0 {
-			break
-		}
-	}
-	return p, nil
-}
-
-func (s *stackedStream) flush() ([]byte, error) {
-	p := []byte{}
-	for _, stream := range s.streams {
-		pStream, err := stream.stream(p)
-		if err != nil {
-			return nil, err
-		}
-		pFlush, err := stream.flush()
-		if err != nil {
-			return nil, err
-		}
-		p = append(pStream, pFlush...)
-	}
-	return p, nil
 }
 
 type headerStream struct {
@@ -318,22 +260,20 @@ type headerStream struct {
 }
 
 func (h *headerStream) stream(p []byte) ([]byte, error) {
-	stack := stackedStream{
-		streams: []streamer{
-			&h.deniabilityReader,
-			&h.versionReader,
-			&h.commentStream,
-			&h.flagStream,
-			&h.saltStream,
-			&h.hkdfSaltStream,
-			&h.serpentIVStream,
-			&h.nonceStream,
-			&h.keyRefStream,
-			&h.keyfileRefStream,
-			&h.macTagStream,
-		},
+	streams := []streamer{
+		&h.deniabilityReader,
+		&h.versionReader,
+		&h.commentStream,
+		&h.flagStream,
+		&h.saltStream,
+		&h.hkdfSaltStream,
+		&h.serpentIVStream,
+		&h.nonceStream,
+		&h.keyRefStream,
+		&h.keyfileRefStream,
+		&h.macTagStream,
 	}
-	return stack.stream(p)
+	return streamStack(streams, p)
 }
 
 func (h *headerStream) isDone() bool {

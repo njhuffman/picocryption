@@ -186,7 +186,7 @@ func (rc *rotatingCipher) flush() ([]byte, error) {
 	return nil, nil
 }
 
-func newDeniabilityStream(password string, header *header) streamer {
+func newDeniabilityStream(password string, header *header) streamerFlusher {
 	nonceManager := denyNonceManager{header: header}
 	denyKey := generateDenyKey(password, header.seeds.denySalt)
 	return &rotatingCipher{
@@ -197,7 +197,7 @@ func newDeniabilityStream(password string, header *header) streamer {
 	}
 }
 
-func newEncryptionStream(keys keys, header *header) (streamer, error) {
+func newEncryptionStreams(keys keys, header *header) ([]streamerFlusher, error) {
 	nonceIvManager := newNonceManager(keys)
 	chachaStream := &rotatingCipher{
 		xorCipher: &chachaCipher{
@@ -206,7 +206,7 @@ func newEncryptionStream(keys keys, header *header) (streamer, error) {
 		},
 	}
 	if !header.settings.Paranoid {
-		return chachaStream, nil
+		return []streamerFlusher{chachaStream}, nil
 	}
 	sb, err := serpent.NewCipher(keys.serpentKey[:])
 	if err != nil {
@@ -219,5 +219,5 @@ func newEncryptionStream(keys keys, header *header) (streamer, error) {
 			header:       header,
 		},
 	}
-	return &stackedStream{streams: []streamer{chachaStream, serpentStream}}, nil
+	return []streamerFlusher{chachaStream, serpentStream}, nil
 }

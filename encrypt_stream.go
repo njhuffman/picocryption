@@ -6,15 +6,15 @@ import (
 
 type encryptStream struct {
 	header  *header
-	streams stackedStream
+	streams []streamerFlusher
 }
 
 func (es *encryptStream) stream(p []byte) ([]byte, error) {
-	return es.streams.stream(p)
+	return streamStack(es.streams, p)
 }
 
 func (es *encryptStream) flush() ([]byte, error) {
-	return es.streams.flush()
+	return flushStack(es.streams)
 }
 
 func makeEncryptStream(settings Settings, seeds seeds, password string) (*encryptStream, error) {
@@ -26,13 +26,13 @@ func makeEncryptStream(settings Settings, seeds seeds, password string) (*encryp
 		return nil, fmt.Errorf("generating keys: %w", err)
 	}
 
-	streams := []streamer{}
+	streams := []streamerFlusher{}
 
-	encryptionStream, err := newEncryptionStream(keys, &header)
+	encryptionStreams, err := newEncryptionStreams(keys, &header)
 	if err != nil {
 		return nil, fmt.Errorf("creating encryption stream: %w", err)
 	}
-	streams = append(streams, encryptionStream)
+	streams = append(streams, encryptionStreams...)
 
 	macStream, err := newMacStream(keys, &header, true)
 	if err != nil {
@@ -56,6 +56,6 @@ func makeEncryptStream(settings Settings, seeds seeds, password string) (*encryp
 
 	return &encryptStream{
 		header:  &header,
-		streams: stackedStream{streams: streams},
+		streams: streams,
 	}, nil
 }
