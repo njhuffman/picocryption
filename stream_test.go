@@ -13,12 +13,13 @@ func TestDecryptStream(t *testing.T) {
 	}
 
 	password := "random1048570"
-	s := makeDecryptStream(password, nil)
+	damageTracker := damageTracker{}
+	s := makeDecryptStream(password, nil, &damageTracker)
 	data, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatal("reading file:", err)
 	}
-	p, _, err := s.stream(data)
+	p, err := s.stream(data)
 	if err != nil {
 		t.Fatal("streaming:", err)
 	}
@@ -37,6 +38,6 @@ func TestEncryptStream(t *testing.T) {
 	if err != nil {
 		t.Fatal("making encrypt stream:", err)
 	}
-	p, _, err := s.stream(data)
+	p, err := s.stream(data)
 	t.Fatal("Length of p:", len(p))
 }

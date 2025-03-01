@@ -152,21 +152,21 @@ type rsEncodeStream struct {
 	buff []byte
 }
 
-func (r *rsEncodeStream) stream(p []byte) ([]byte, bool, error) {
+func (r *rsEncodeStream) stream(p []byte) ([]byte, error) {
 	r.buff = append(r.buff, p...)
 	nChunks := len(r.buff) / chunkSize
 	rsData := make([]byte, nChunks*encodedSize)
 	for i := 0; i < nChunks; i++ {
 		err := rsEncode(rsData[i*encodedSize:(i+1)*encodedSize], r.buff[i*chunkSize:(i+1)*chunkSize])
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	}
 	r.buff = r.buff[nChunks*chunkSize:]
-	return rsData, false, nil
+	return rsData, nil
 }
 
-func (r *rsEncodeStream) flush() ([]byte, bool, error) {
+func (r *rsEncodeStream) flush() ([]byte, error) {
 	padding := make([]byte, chunkSize-len(r.buff))
 	for i := range padding {
 		padding[i] = byte(chunkSize - len(r.buff))
@@ -174,17 +174,18 @@ func (r *rsEncodeStream) flush() ([]byte, bool, error) {
 	dst := make([]byte, encodedSize)
 	err := rsEncode(dst, append(r.buff, padding...))
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return dst, false, nil
+	return dst, nil
 }
 
 type rsDecodeStream struct {
-	buff []byte
-	skip bool
+	buff          []byte
+	skip          bool
+	damageTracker *damageTracker
 }
 
-func (r *rsDecodeStream) stream(p []byte) ([]byte, bool, error) {
+func (r *rsDecodeStream) stream(p []byte) ([]byte, error) {
 	r.buff = append(r.buff, p...)
 	nChunks := len(r.buff) / encodedSize
 	// The last chunk might be padded, so keep it in the buffer for Flush
@@ -193,30 +194,28 @@ func (r *rsDecodeStream) stream(p []byte) ([]byte, bool, error) {
 	}
 	rsData := make([]byte, nChunks*chunkSize)
 	var decodeErr error
-	damaged := false
 	for i := 0; i < nChunks; i++ {
 		src := r.buff[i*encodedSize : (i+1)*encodedSize]
 		dst := rsData[i*chunkSize : (i+1)*chunkSize]
-		dmg, err := rsDecode(dst, src, r.skip)
-		if dmg {
-			damaged = true
-		}
+		damaged, err := rsDecode(dst, src, r.skip)
+		r.damageTracker.damage = r.damageTracker.damage || damaged
 		if err != nil {
 			decodeErr = err
 		}
 	}
 	r.buff = r.buff[nChunks*encodedSize:]
-	return rsData, damaged, decodeErr
+	return rsData, decodeErr
 }
 
-func (r *rsDecodeStream) flush() ([]byte, bool, error) {
+func (r *rsDecodeStream) flush() ([]byte, error) {
 	res := make([]byte, chunkSize)
 	damaged, err := rsDecode(res, r.buff, r.skip)
+	r.damageTracker.damage = r.damageTracker.damage || damaged
 	keep := chunkSize - int(res[chunkSize-1])
 	if keep < chunkSize {
-		return res[:keep], damaged, err
+		return res[:keep], err
 	}
-	return res, damaged, ErrCorrupted
+	return res, ErrCorrupted
 }
 
 func makeRSEncodeStream() *rsEncodeStream {

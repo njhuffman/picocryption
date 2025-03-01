@@ -44,7 +44,8 @@ func Decrypt(
 	update chan Update,
 ) (bool, error) {
 
-	decryptStream := makeDecryptStream(pw, kf)
+	damageTracker := damageTracker{}
+	decryptStream := makeDecryptStream(pw, kf, &damageTracker)
 
 	getNow := func() float64 { return float64(time.Now().UnixMilli()) / 1000.0 }
 	start := getNow()
@@ -71,34 +72,33 @@ func Decrypt(
 				return false, fmt.Errorf("reading input: %w", err)
 			}
 		}
-		p, damaged, err := decryptStream.stream(p[:n])
+		p, err = decryptStream.stream(p[:n])
 		if err != nil {
 			if errors.Is(err, ErrCorrupted) && ignoreCorruption {
 				corruptionIgnored = true
 			} else {
-				return damaged, err
+				return damageTracker.damage, err
 			}
 		}
 		_, err = w.Write(p)
 		if err != nil {
-			return damaged, err
+			return damageTracker.damage, err
 		}
 		count += len(p)
 		total += len(p)
 		if eof {
 			if corruptionIgnored {
-				return damaged, ErrCorrupted
+				return damageTracker.damage, ErrCorrupted
 			}
-			p, dmg, err := decryptStream.flush()
-			damaged = damaged || dmg
+			p, err := decryptStream.flush()
 			if err != nil {
-				return damaged, err
+				return damageTracker.damage, err
 			}
 			_, err = w.Write(p)
 			if err != nil {
-				return damaged, err
+				return damageTracker.damage, err
 			}
-			return damaged, nil
+			return damageTracker.damage, nil
 		}
 	}
 }
@@ -163,7 +163,7 @@ func EncryptHeadless(
 		}
 		count += n
 		total += n
-		p, _, err := encryptionStream.stream(buf[:n])
+		p, err := encryptionStream.stream(buf[:n])
 		if err != nil {
 			return nil, fmt.Errorf("encrypting input: %w", err)
 		}
@@ -176,7 +176,7 @@ func EncryptHeadless(
 		}
 	}
 
-	p, _, err := encryptionStream.flush()
+	p, err := encryptionStream.flush()
 	if err != nil {
 		return nil, fmt.Errorf("closing encryptor: %w", err)
 	}

@@ -16,28 +16,28 @@ type macStream struct {
 	header     *header
 }
 
-func (ms *macStream) stream(p []byte) ([]byte, bool, error) {
+func (ms *macStream) stream(p []byte) ([]byte, error) {
 	_, err := ms.mac.Write(p)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return p, false, nil
+	return p, nil
 }
 
-func (ms *macStream) flush() ([]byte, bool, error) {
+func (ms *macStream) flush() ([]byte, error) {
 	m := ms.mac.Sum(nil)
 	if ms.encrypting {
 		log.Println("Saving mac tag")
 		copy(ms.header.refs.macTag[:], m)
-		return nil, false, nil
+		return nil, nil
 	}
 	log.Println("Comparing mac tag")
 	if !hmac.Equal(m, ms.header.refs.macTag[:]) {
 		log.Println("Comparison failed")
-		return nil, true, ErrCorrupted
+		return nil, ErrCorrupted
 	}
 	log.Println("Comparison passed:", m)
-	return nil, false, nil
+	return nil, nil
 }
 
 func newMacStream(keys keys, header *header, encrypting bool) (*macStream, error) {
@@ -61,26 +61,26 @@ type decryptStream struct {
 	bodyStream streamer
 }
 
-func (ds *decryptStream) stream(p []byte) ([]byte, bool, error) {
-	p, damaged, err := ds.headerStream.stream(p)
+func (ds *decryptStream) stream(p []byte) ([]byte, error) {
+	p, err := ds.headerStream.stream(p)
 	if err != nil {
-		return nil, damaged, err
+		return nil, err
 	}
 	if ds.headerStream.isDone() {
 		if ds.bodyStream == nil {
 			ds.bodyStream, err = ds.makeBodyStream()
 			if err != nil {
-				return nil, damaged, err
+				return nil, err
 			}
 		}
 		return ds.bodyStream.stream(p)
 	}
-	return p, damaged, nil
+	return p, nil
 }
 
-func (ds *decryptStream) flush() ([]byte, bool, error) {
+func (ds *decryptStream) flush() ([]byte, error) {
 	if ds.bodyStream == nil {
-		return nil, false, nil
+		return nil, nil
 	}
 	return ds.bodyStream.flush()
 }
@@ -111,11 +111,11 @@ func (ds *decryptStream) makeBodyStream() (streamer, error) {
 	return &stackedStream{streams: streams}, nil
 }
 
-func makeDecryptStream(password string, keyfiles []io.Reader) *decryptStream {
+func makeDecryptStream(password string, keyfiles []io.Reader, damageTracker *damageTracker) *decryptStream {
 	header := header{}
 	return &decryptStream{
 		password:     password,
 		keyfiles:     keyfiles,
-		headerStream: makeHeaderStream(password, &header),
+		headerStream: makeHeaderStream(password, &header, damageTracker),
 	}
 }

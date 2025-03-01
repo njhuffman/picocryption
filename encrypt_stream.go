@@ -9,11 +9,11 @@ type encryptStream struct {
 	streams stackedStream
 }
 
-func (es *encryptStream) stream(p []byte) ([]byte, bool, error) {
+func (es *encryptStream) stream(p []byte) ([]byte, error) {
 	return es.streams.stream(p)
 }
 
-func (es *encryptStream) flush() ([]byte, bool, error) {
+func (es *encryptStream) flush() ([]byte, error) {
 	return es.streams.flush()
 }
 
@@ -47,7 +47,7 @@ func makeEncryptStream(settings Settings, seeds seeds, password string) (*encryp
 	if settings.Deniability {
 		deniabilityStream := newDeniabilityStream(password, &header)
 		mockHeaderData := make([]byte, baseHeaderSize+3*len(settings.Comments))
-		_, _, err := deniabilityStream.stream(mockHeaderData)
+		_, err := deniabilityStream.stream(mockHeaderData)
 		if err != nil {
 			return nil, fmt.Errorf("seeding deniability stream: %w", err)
 		}

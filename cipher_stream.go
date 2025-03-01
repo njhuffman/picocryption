@@ -153,11 +153,11 @@ type rotatingCipher struct {
 	initialised    bool
 }
 
-func (rc *rotatingCipher) stream(p []byte) ([]byte, bool, error) {
+func (rc *rotatingCipher) stream(p []byte) ([]byte, error) {
 	if !rc.initialised {
 		err := rc.xorCipher.reset(0)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		rc.initialised = true
 	}
@@ -166,7 +166,7 @@ func (rc *rotatingCipher) stream(p []byte) ([]byte, bool, error) {
 		j := min(int64(len(p))-i, resetNonceAt-rc.writtenCounter)
 		err := rc.xor(p[i : i+j])
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		rc.writtenCounter += j
 		if rc.writtenCounter == resetNonceAt {
@@ -174,16 +174,16 @@ func (rc *rotatingCipher) stream(p []byte) ([]byte, bool, error) {
 			rc.resetCounter++
 			err = rc.reset(rc.resetCounter)
 			if err != nil {
-				return nil, false, err
+				return nil, err
 			}
 		}
 		i += j
 	}
-	return p, false, nil
+	return p, nil
 }
 
-func (rc *rotatingCipher) flush() ([]byte, bool, error) {
-	return nil, false, nil
+func (rc *rotatingCipher) flush() ([]byte, error) {
+	return nil, nil
 }
 
 func newDeniabilityStream(password string, header *header) streamer {
