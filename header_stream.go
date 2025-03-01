@@ -48,7 +48,7 @@ func (v *versionReader) stream(p []byte) ([]byte, error) {
 		if v.buff.isFull() {
 			// check that the version is actually good
 			version := make([]byte, versionSize)
-			damaged, err := rsDecode(version, v.buff.data, false)
+			damaged, _, err := rsDecode(version, v.buff.data, false)
 			v.damageTracker.damage = v.damageTracker.damage || damaged
 			if err != nil {
 				return nil, fmt.Errorf("decoding version: %w", err)
@@ -58,7 +58,7 @@ func (v *versionReader) stream(p []byte) ([]byte, error) {
 				return nil, fmt.Errorf("parsing version format: %w", err)
 			}
 			if !valid {
-				return nil, ErrCorrupted
+				return nil, ErrHeaderCorrupted
 			}
 		}
 	}
@@ -141,8 +141,11 @@ func (f *flagStream) stream(p []byte) ([]byte, error) {
 		p = f.buff.add(p)
 		if f.buff.isFull() {
 			data := make([]byte, flagsSize)
-			damaged, err := rsDecode(data, f.buff.data, false)
+			damaged, corrupted, err := rsDecode(data, f.buff.data, false)
 			f.damageTracker.damage = f.damageTracker.damage || damaged
+			if corrupted {
+				return nil, ErrHeaderCorrupted
+			}
 			if err != nil {
 				return nil, fmt.Errorf("decoding flags: %w", err)
 			}
@@ -179,14 +182,20 @@ func (c *commentStream) stream(p []byte) ([]byte, error) {
 		p = c.lenBuff.add(p)
 		if c.lenBuff.isFull() {
 			cLenRune := make([]byte, commentSize)
-			damaged, err := rsDecode(cLenRune, c.lenBuff.data, false)
+			damaged, corrupted, err := rsDecode(cLenRune, c.lenBuff.data, false)
 			c.damageTracker.damage = c.damageTracker.damage || damaged
+			if corrupted {
+				return nil, ErrHeaderCorrupted
+			}
 			if err != nil {
 				return nil, fmt.Errorf("decoding comment length: %w", err)
 			}
 			cLen, err := strconv.Atoi(string(cLenRune))
 			if err != nil {
-				return nil, fmt.Errorf("parsing comment length: %w", ErrCorrupted)
+				return nil, fmt.Errorf("parsing comment length: %w", ErrHeaderCorrupted)
+			}
+			if (cLen < 0) || (cLen > maxCommentsLength) {
+				return nil, ErrHeaderCorrupted
 			}
 			c.commentBuff = buffer{size: cLen * 3}
 		}
@@ -197,7 +206,8 @@ func (c *commentStream) stream(p []byte) ([]byte, error) {
 			var builder strings.Builder
 			for i := 0; i < len(c.commentBuff.data); i += 3 {
 				value := [1]byte{}
-				damaged, err := rsDecode(value[:], c.commentBuff.data[i:i+3], false)
+				// Ignore corruption on comments, they are not critical
+				damaged, _, err := rsDecode(value[:], c.commentBuff.data[i:i+3], false)
 				c.damageTracker.damage = c.damageTracker.damage || damaged
 				if err != nil {
 					return nil, fmt.Errorf("decoding comment length: %w", err)
@@ -233,8 +243,11 @@ func (s *sliceStream) stream(p []byte) ([]byte, error) {
 		p = s.buff.add(p)
 		if s.buff.isFull() {
 			data := make([]byte, len(s.slice))
-			damaged, err := rsDecode(data, s.buff.data, false)
+			damaged, corrupted, err := rsDecode(data, s.buff.data, false)
 			s.damageTracker.damage = s.damageTracker.damage || damaged
+			if corrupted {
+				return nil, ErrHeaderCorrupted
+			}
 			if err != nil {
 				return nil, fmt.Errorf("decoding slice: %w", err)
 			}

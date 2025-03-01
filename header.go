@@ -95,7 +95,7 @@ func readVersion(reader io.Reader, password string) (*deniability, bool, error) 
 	}
 
 	version := make([]byte, versionSize)
-	damaged, rsErr := rsDecode(version, raw, false)
+	damaged, _, rsErr := rsDecode(version, raw, false)
 	valid, rgErr := regexp.Match(`^v1\.\d{2}`, []byte(version))
 	if rgErr != nil {
 		return nil, damaged, fmt.Errorf("parsing version format: %w", rgErr)
@@ -130,13 +130,13 @@ func readVersion(reader io.Reader, password string) (*deniability, bool, error) 
 		return nil, false, err
 	}
 	version = make([]byte, versionSize)
-	damaged, err = rsDecode(version, raw, false)
+	damaged, _, err = rsDecode(version, raw, false)
 	if err != nil {
 		return nil, damaged, err
 	}
 	valid, _ = regexp.Match(`^v1\.\d{2}`, []byte(version))
 	if !valid {
-		return nil, true, ErrCorrupted
+		return nil, true, ErrHeaderCorrupted
 	}
 	return deny, damaged, nil
 }
@@ -161,8 +161,11 @@ func readFromHeader(reader io.Reader, size int, deny *deniability) ([]byte, bool
 		return tmp, false, err
 	}
 	data := make([]byte, size)
-	damaged, err := rsDecode(data, tmp, false)
-	if errors.Is(err, ErrCorrupted) {
+	damaged, corrupted, err := rsDecode(data, tmp, false)
+	if corrupted {
+		return tmp, damaged, ErrHeaderCorrupted
+	}
+	if err != nil {
 		return tmp, damaged, err
 	}
 	return data, damaged, err

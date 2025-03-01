@@ -46,10 +46,10 @@ func rsEncode(dst, src []byte) error {
 	return fec.Encode(src, func(s infectious.Share) { dst[s.Number] = s.Data[0] })
 }
 
-func rsDecode(dst, src []byte, skip bool) (bool, error) {
+func rsDecode(dst, src []byte, skip bool) (bool, bool, error) {
 	if skip {
 		copy(dst, src[:len(dst)])
-		return false, nil
+		return false, false, nil
 	}
 
 	// Encoding is much faster than decoding. Try re-encoding the original
@@ -58,14 +58,13 @@ func rsDecode(dst, src []byte, skip bool) (bool, error) {
 	rsEncode(recoded, src[:len(dst)])
 	if bytes.Equal(recoded, src) {
 		copy(dst, src[:len(dst)])
-		return false, nil
+		return false, false, nil
 	}
 
 	// Attempt to recover damaged data
 	fec, err := getFEC(src, dst)
 	if err != nil {
-		// TODO should still copy over the first bytes as a guess?
-		return false, fmt.Errorf("failed to get FEC: %w", err)
+		return false, false, fmt.Errorf("getting FEC: %w", err)
 	}
 	tmp := make([]infectious.Share, fec.Total())
 	for i := 0; i < fec.Total(); i++ {
@@ -75,12 +74,12 @@ func rsDecode(dst, src []byte, skip bool) (bool, error) {
 	res, err := fec.Decode(nil, tmp)
 	if err == nil {
 		copy(dst, res)
-		return true, nil
+		return true, false, nil
 	}
 
 	// Fully corrupted - use a best guess
 	copy(dst, src[:len(dst)])
-	return true, ErrCorrupted
+	return true, true, nil
 }
 
 type rsBodyEncoder struct {
@@ -113,7 +112,7 @@ type rsBodyDecoder struct {
 	skip   bool
 }
 
-func (r *rsBodyDecoder) decode(data []byte) ([]byte, bool, error) {
+func (r *rsBodyDecoder) decode(data []byte) ([]byte, bool, bool, error) {
 	r.buffer = append(r.buffer, data...)
 	nChunks := len(r.buffer) / encodedSize
 	// The last chunk might be padded, so keep it in the buffer for Flush
@@ -121,31 +120,33 @@ func (r *rsBodyDecoder) decode(data []byte) ([]byte, bool, error) {
 		nChunks -= 1
 	}
 	rsData := make([]byte, nChunks*chunkSize)
-	var decodeErr error
 	damaged := false
+	corrupted := false
 	for i := 0; i < nChunks; i++ {
 		src := r.buffer[i*encodedSize : (i+1)*encodedSize]
 		dst := rsData[i*chunkSize : (i+1)*chunkSize]
-		dmg, err := rsDecode(dst, src, r.skip)
-		if dmg {
-			damaged = true
-		}
+		dmg, crp, err := rsDecode(dst, src, r.skip)
+		damaged = damaged || dmg
+		corrupted = corrupted || crp
 		if err != nil {
-			decodeErr = err
+			return nil, damaged, corrupted, err
 		}
 	}
 	r.buffer = r.buffer[nChunks*encodedSize:]
-	return rsData, damaged, decodeErr
+	return rsData, damaged, corrupted, nil
 }
 
-func (r *rsBodyDecoder) flush() ([]byte, bool, error) {
+func (r *rsBodyDecoder) flush() ([]byte, bool, bool, error) {
 	res := make([]byte, chunkSize)
-	damaged, err := rsDecode(res, r.buffer, r.skip)
+	damaged, corrupted, err := rsDecode(res, r.buffer, r.skip)
+	if err != nil {
+		return nil, damaged, corrupted, err
+	}
 	keep := chunkSize - int(res[chunkSize-1])
 	if keep < chunkSize {
-		return res[:keep], damaged, err
+		return res[:keep], damaged, corrupted, err
 	}
-	return res, damaged, ErrCorrupted
+	return res, damaged, corrupted, ErrBodyCorrupted
 }
 
 type rsEncodeStream struct {
@@ -197,7 +198,7 @@ func (r *rsDecodeStream) stream(p []byte) ([]byte, error) {
 	for i := 0; i < nChunks; i++ {
 		src := r.buff[i*encodedSize : (i+1)*encodedSize]
 		dst := rsData[i*chunkSize : (i+1)*chunkSize]
-		damaged, err := rsDecode(dst, src, r.skip)
+		damaged, _, err := rsDecode(dst, src, r.skip)
 		r.damageTracker.damage = r.damageTracker.damage || damaged
 		if err != nil {
 			decodeErr = err
@@ -209,13 +210,16 @@ func (r *rsDecodeStream) stream(p []byte) ([]byte, error) {
 
 func (r *rsDecodeStream) flush() ([]byte, error) {
 	res := make([]byte, chunkSize)
-	damaged, err := rsDecode(res, r.buff, r.skip)
+	damaged, _, err := rsDecode(res, r.buff, r.skip)
 	r.damageTracker.damage = r.damageTracker.damage || damaged
+	if err != nil {
+		return nil, err
+	}
 	keep := chunkSize - int(res[chunkSize-1])
 	if keep < chunkSize {
 		return res[:keep], err
 	}
-	return res, ErrCorrupted
+	return nil, ErrBodyCorrupted
 }
 
 func makeRSEncodeStream() *rsEncodeStream {

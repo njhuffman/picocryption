@@ -34,7 +34,7 @@ func (ms *macStream) flush() ([]byte, error) {
 	log.Println("Comparing mac tag")
 	if !hmac.Equal(m, ms.header.refs.macTag[:]) {
 		log.Println("Comparison failed")
-		return nil, ErrCorrupted
+		return nil, ErrBodyCorrupted
 	}
 	log.Println("Comparison passed:", m)
 	return nil, nil

@@ -17,7 +17,8 @@ var ErrIncorrectOrMisorderedKeyfiles = errors.New("incorrect or misordered keyfi
 var ErrKeyfilesRequired = errors.New("missing required keyfiles")
 var ErrDuplicateKeyfiles = errors.New("duplicate keyfiles")
 var ErrKeyfilesNotRequired = errors.New("keyfiles not required")
-var ErrCorrupted = errors.New("data corrupted beyond repair")
+var ErrHeaderCorrupted = errors.New("header corrupted")
+var ErrBodyCorrupted = errors.New("body corrupted")
 var ErrCommentsTooLong = errors.New("comments exceed maximum length")
 
 type Settings struct {
@@ -74,7 +75,7 @@ func Decrypt(
 		}
 		p, err = decryptStream.stream(p[:n])
 		if err != nil {
-			if errors.Is(err, ErrCorrupted) && ignoreCorruption {
+			if errors.Is(err, ErrBodyCorrupted) && ignoreCorruption {
 				corruptionIgnored = true
 			} else {
 				return damageTracker.damage, err
@@ -88,7 +89,7 @@ func Decrypt(
 		total += len(p)
 		if eof {
 			if corruptionIgnored {
-				return damageTracker.damage, ErrCorrupted
+				return damageTracker.damage, ErrBodyCorrupted
 			}
 			p, err := decryptStream.flush()
 			if err != nil {
@@ -108,7 +109,7 @@ func GetEncryptionSettings(r io.Reader) (Settings, error) {
 	if err == nil {
 		return header.settings, nil
 	}
-	if errors.Is(err, ErrCorrupted) {
+	if errors.Is(err, ErrHeaderCorrupted) {
 		return Settings{Deniability: true}, nil
 	}
 	return Settings{}, fmt.Errorf("reading header: %w", err)

@@ -3,7 +3,6 @@ package picocryption
 import (
 	"bytes"
 	"crypto/rand"
-	"errors"
 	"testing"
 )
 
@@ -34,7 +33,7 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	recover := make([]byte, len(data))
-	damaged, err := rsDecode(recover, dataRS, false)
+	damaged, corrupted, err := rsDecode(recover, dataRS, false)
 	if damaged {
 		t.Fatal("data should not be damaged")
 	}
@@ -46,7 +45,7 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	dataRS[0] = dataRS[0] + 1 // slightly damage data
-	damaged, err = rsDecode(recover, dataRS, false)
+	damaged, corrupted, err = rsDecode(recover, dataRS, false)
 	if !damaged {
 		t.Fatal("should be damaged")
 	}
@@ -58,12 +57,15 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	rand.Read(dataRS[:]) // major damage
-	damaged, err = rsDecode(recover, dataRS, false)
+	damaged, corrupted, err = rsDecode(recover, dataRS, false)
 	if !damaged {
 		t.Fatal("should be damaged")
 	}
-	if !errors.Is(err, ErrCorrupted) {
+	if !corrupted {
 		t.Fatal("should be corrupted")
+	}
+	if err != nil {
+		t.Fatal("should be no error, got", err)
 	}
 	if bytes.Equal(data, recover) {
 		t.Fatal("data shouldn't match")
@@ -92,29 +94,29 @@ func TestRSBodyMatch(t *testing.T) {
 		t.Fatal("Encoded wrong number of chunks")
 	}
 
-	fullDecode := func(data []byte) ([]byte, error) {
+	fullDecode := func(data []byte) ([]byte, bool, bool, error) {
 		// should be able to decode in any size chunks
 		decoder := &rsBodyDecoder{}
 		decodedData := []byte{}
 		var decodeErr error
 		decodeChunks := chunk(data)
 		for _, c := range decodeChunks {
-			data, _, err := decoder.decode(c)
+			data, damaged, corrupted, err := decoder.decode(c)
 			if err != nil {
-				decodeErr = err
+				return nil, damaged, corrupted, err
 			}
 			decodedData = append(decodedData, data...)
 		}
-		data, _, err := decoder.flush()
+		data, damaged, corrupted, err := decoder.flush()
 		if err != nil {
-			decodeErr = err
+			return nil, damaged, corrupted, err
 		}
 		decodedData = append(decodedData, data...)
-		return decodedData, decodeErr
+		return decodedData, damaged, corrupted, decodeErr
 	}
 
 	// decoding the encoded data should work without error
-	decodedData, err := fullDecode(encodedData)
+	decodedData, _, _, err := fullDecode(encodedData)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,15 +126,15 @@ func TestRSBodyMatch(t *testing.T) {
 
 	// decoded slightly damaged data should work
 	encodedData[5] = encodedData[5] + 1
-	decodedData, _ = fullDecode(encodedData)
+	decodedData, _, _, _ = fullDecode(encodedData)
 	if !bytes.Equal(origData, decodedData) {
 		t.Fatal("Original data differs from decoded data")
 	}
 
 	// a large error is irrecoverable
 	rand.Read(encodedData[:])
-	_, err = fullDecode(encodedData)
-	if !errors.Is(err, ErrCorrupted) {
-		t.Fatal(err)
+	_, _, corrupted, _ := fullDecode(encodedData)
+	if !corrupted {
+		t.Fatal("Should be corrupted")
 	}
 }

@@ -30,8 +30,8 @@ func TestFileCorrupted(t *testing.T) {
 		t.Fatal("creating random data:", err)
 	}
 	_, err = Decrypt("password", []io.Reader{}, bytes.NewBuffer(invalidData), bytes.NewBuffer([]byte{}), false, false, nil)
-	if !errors.Is(err, ErrCorrupted) {
-		t.Fatal("expected ErrCorrupted, got", err)
+	if !errors.Is(err, ErrBodyCorrupted) {
+		t.Fatal("expected ErrBodyCorrupted, got", err)
 	}
 }
 
@@ -114,8 +114,8 @@ func TestCorrupted(t *testing.T) {
 	}
 	defer reader.Close()
 	_, err = Decrypt("qwerty", []io.Reader{}, reader, bytes.NewBuffer([]byte{}), false, false, nil)
-	if !errors.Is(err, ErrCorrupted) {
-		t.Fatal("expected ErrCorrupted, got", err)
+	if !errors.Is(err, ErrBodyCorrupted) {
+		t.Fatal("expected ErrBodyCorrupted, got", err)
 	}
 }
 

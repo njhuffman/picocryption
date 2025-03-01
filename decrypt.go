@@ -58,11 +58,11 @@ func (d *decryptor) read(p []byte) (int, bool, error) {
 	var decodeErr error
 	damaged := false
 	if d.rs != nil && len(data) > 0 {
-		data, damaged, decodeErr = d.rs.decode(data)
+		data, damaged, _, decodeErr = d.rs.decode(data)
 	} else if d.rEof && !d.rsFlushed && d.rs != nil {
 		d.rsFlushed = true
 		var flushData []byte
-		flushData, damaged, decodeErr = d.rs.flush()
+		flushData, damaged, _, decodeErr = d.rs.flush()
 		data = append(data, flushData...)
 	}
 
@@ -79,7 +79,7 @@ func (d *decryptor) read(p []byte) (int, bool, error) {
 		d.done = true
 		macTag := d.mac.Sum(nil)
 		if !bytes.Equal(macTag, d.macTag[:]) {
-			decodeErr = ErrCorrupted
+			decodeErr = ErrBodyCorrupted
 		}
 		if decodeErr == nil {
 			decodeErr = io.EOF
