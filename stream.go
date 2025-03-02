@@ -10,8 +10,9 @@ type streamerFlusher interface {
 }
 
 func streamStack[T streamer](streams []T, p []byte) ([]byte, error) {
+	var err error
 	for _, stream := range streams {
-		p, err := stream.stream(p)
+		p, err = stream.stream(p)
 		if err != nil {
 			return nil, err
 		}
