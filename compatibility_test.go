@@ -72,10 +72,11 @@ func makeExample(
 		return Example{}, err
 	}
 	defer r.Close()
-	header, _, err := readHeader(r, password)
+	header, err := getHeader(r, password)
 	if err != nil {
 		return Example{}, err
 	}
+	log.Println("Header:", header)
 	return Example{decrypted, encrypted, password, keyfiles, header}, nil
 }
 

@@ -226,6 +226,6 @@ func makeRSEncodeStream() *rsEncodeStream {
 	return &rsEncodeStream{}
 }
 
-func makeRSDecodeStream(skip bool) *rsDecodeStream {
-	return &rsDecodeStream{skip: skip}
+func makeRSDecodeStream(skip bool, damageTracker *damageTracker) *rsDecodeStream {
+	return &rsDecodeStream{skip: skip, damageTracker: damageTracker}
 }

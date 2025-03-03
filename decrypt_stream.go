@@ -60,7 +60,8 @@ type decryptStream struct {
 	password string
 	keyfiles []io.Reader
 	headerStream
-	bodyStreams []streamerFlusher
+	bodyStreams   []streamerFlusher
+	damageTracker *damageTracker
 }
 
 func (ds *decryptStream) stream(p []byte) ([]byte, error) {
@@ -98,7 +99,7 @@ func (ds *decryptStream) makeBodyStreams() ([]streamerFlusher, error) {
 	streams := []streamerFlusher{}
 	// TODO: add reed solomon if configured
 	if ds.header.settings.ReedSolomon {
-		streams = append(streams, makeRSDecodeStream(false))
+		streams = append(streams, makeRSDecodeStream(false, ds.damageTracker))
 	}
 	macStream, err := newMacStream(keys, ds.header, false)
 	if err != nil {
@@ -116,9 +117,10 @@ func (ds *decryptStream) makeBodyStreams() ([]streamerFlusher, error) {
 func makeDecryptStream(password string, keyfiles []io.Reader, damageTracker *damageTracker) *decryptStream {
 	header := header{}
 	return &decryptStream{
-		password:     password,
-		keyfiles:     keyfiles,
-		headerStream: makeHeaderStream(password, &header, damageTracker),
+		password:      password,
+		keyfiles:      keyfiles,
+		headerStream:  makeHeaderStream(password, &header, damageTracker),
+		damageTracker: damageTracker,
 	}
 }
 

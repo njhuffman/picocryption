@@ -1,7 +1,9 @@
 package picocryption
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
@@ -92,6 +94,8 @@ func (d *deniabilityReader) stream(p []byte) ([]byte, error) {
 				nonce := [24]byte{}
 				copy(salt[:], d.buff.data[:len(salt)])
 				copy(nonce[:], d.buff.data[len(salt):])
+				d.header.seeds.denyNonce = nonce
+				d.header.seeds.denySalt = salt
 				key := generateDenyKey(d.password, salt)
 				d.deny, err = newDeniability(key, nonce, salt, 0)
 				if err != nil {
@@ -314,4 +318,27 @@ func (s *sizeStream) flush() ([]byte, error) {
 
 func makeSizeStream(header *header) sizeStream {
 	return sizeStream{header: header}
+}
+
+func getHeader(r io.Reader, password string) (header, error) {
+	h := header{}
+	stream := makeHeaderStream(password, &h, &damageTracker{})
+	for {
+		p := make([]byte, 1000) // big enough to get most headers in one read
+		n, err := r.Read(p)
+		eof := errors.Is(err, io.EOF)
+		if err != nil && !eof {
+			return header{}, fmt.Errorf("reading file: %w", err)
+		}
+		_, err = stream.stream(p[:n])
+		if err != nil {
+			return header{}, fmt.Errorf("reading header: %w", err)
+		}
+		if stream.isDone() {
+			return h, nil
+		}
+		if eof {
+			return header{}, ErrFileTooShort
+		}
+	}
 }

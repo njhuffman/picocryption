@@ -105,14 +105,14 @@ func Decrypt(
 }
 
 func GetEncryptionSettings(r io.Reader) (Settings, error) {
-	header, _, err := readHeader(r, "")
-	if err == nil {
-		return header.settings, nil
-	}
-	if errors.Is(err, ErrHeaderCorrupted) {
+	header, err := getHeader(r, "")
+	if errors.Is(err, ErrFileTooShort) {
 		return Settings{Deniability: true}, nil
 	}
-	return Settings{}, fmt.Errorf("reading header: %w", err)
+	if err != nil {
+		return Settings{}, fmt.Errorf("reading header: %w", err)
+	}
+	return header.settings, nil
 }
 
 func EncryptHeadless(
