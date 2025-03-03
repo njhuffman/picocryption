@@ -39,5 +39,10 @@ func TestEncryptStream(t *testing.T) {
 		t.Fatal("making encrypt stream:", err)
 	}
 	p, err := s.stream(data)
-	t.Fatal("Length of p:", len(p))
+	if len(p) >= 0 {
+		t.Fatal("Length of p:", len(p))
+	}
+	if err != nil {
+		t.Fatal("streaming:", err)
+	}
 }

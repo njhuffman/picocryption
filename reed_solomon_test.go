@@ -33,7 +33,7 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	recover := make([]byte, len(data))
-	damaged, corrupted, err := rsDecode(recover, dataRS, false)
+	damaged, _, err := rsDecode(recover, dataRS, false)
 	if damaged {
 		t.Fatal("data should not be damaged")
 	}
@@ -45,7 +45,7 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	dataRS[0] = dataRS[0] + 1 // slightly damage data
-	damaged, corrupted, err = rsDecode(recover, dataRS, false)
+	damaged, _, err = rsDecode(recover, dataRS, false)
 	if !damaged {
 		t.Fatal("should be damaged")
 	}
@@ -57,7 +57,7 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	rand.Read(dataRS[:]) // major damage
-	damaged, corrupted, err = rsDecode(recover, dataRS, false)
+	damaged, corrupted, err := rsDecode(recover, dataRS, false)
 	if !damaged {
 		t.Fatal("should be damaged")
 	}

@@ -1,12 +1,9 @@
 package picocryption
 
 import (
-	"crypto/cipher"
 	"errors"
 	"fmt"
-	"io"
 
-	"github.com/Picocrypt/serpent"
 	"golang.org/x/crypto/chacha20"
 	"golang.org/x/crypto/sha3"
 )
@@ -18,77 +15,6 @@ func min(a, b int64) int64 {
 		return a
 	}
 	return b
-}
-
-type encryptionCipher struct {
-	chacha       *chacha20.Cipher
-	serpentBlock cipher.Block
-	serpent      cipher.Stream
-	keys         keys
-	counter      int64
-}
-
-func (ec *encryptionCipher) encode(dst, src []byte) error {
-	i := int64(0)
-	for i < int64(len(src)) {
-		j := min(int64(len(src))-i, resetNonceAt-ec.counter)
-		ec.chacha.XORKeyStream(dst[i:i+j], src[i:i+j])
-		if ec.keys.settings.Paranoid {
-			ec.serpent.XORKeyStream(dst[i:i+j], dst[i:i+j])
-		}
-		err := ec.updateCounter(j)
-		if err != nil {
-			return fmt.Errorf("updating encryption counter: %w", err)
-		}
-		i += j
-	}
-	return nil
-}
-
-func (ec *encryptionCipher) updateCounter(length int64) error {
-	ec.counter += length
-	if ec.counter < resetNonceAt {
-		return nil
-	}
-	if ec.counter > resetNonceAt {
-		return errors.New("overshot counter target")
-	}
-	nonce := make([]byte, len(ec.keys.seeds.nonce))
-	_, err := io.ReadFull(ec.keys.hkdf, nonce)
-	if err != nil {
-		return fmt.Errorf("resetting nonce: %w", err)
-	}
-	ec.chacha, err = chacha20.NewUnauthenticatedCipher(ec.keys.key[:], nonce)
-	if err != nil {
-		return fmt.Errorf("creating chacha cipher: %w", err)
-	}
-	serpentIV := make([]byte, len(ec.keys.seeds.serpentIV))
-	_, err = io.ReadFull(ec.keys.hkdf, serpentIV)
-	if err != nil {
-		return fmt.Errorf("resetting serpentIV: %w", err)
-	}
-	ec.serpent = cipher.NewCTR(ec.serpentBlock, serpentIV)
-	ec.counter = 0
-	return nil
-}
-
-func newEncryptionCipher(keys keys) (*encryptionCipher, error) {
-	chacha, err := chacha20.NewUnauthenticatedCipher(keys.key[:], keys.seeds.nonce[:])
-	if err != nil {
-		return nil, fmt.Errorf("creating chacha20 cipher: %w", err)
-	}
-	sb, err := serpent.NewCipher(keys.serpentKey[:])
-	if err != nil {
-		return nil, fmt.Errorf("creating serpent cipher: %w", err)
-	}
-	s := cipher.NewCTR(sb, keys.seeds.serpentIV[:])
-	return &encryptionCipher{
-		chacha:       chacha,
-		serpentBlock: sb,
-		serpent:      s,
-		keys:         keys,
-		counter:      0,
-	}, nil
 }
 
 type deniability struct {
