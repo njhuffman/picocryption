@@ -2,6 +2,7 @@ package picocryption
 
 import (
 	"fmt"
+	"io"
 )
 
 type encryptStream struct {
@@ -17,11 +18,11 @@ func (es *encryptStream) flush() ([]byte, error) {
 	return flushStack(es.streams)
 }
 
-func makeEncryptStream(settings Settings, seeds seeds, password string) (*encryptStream, error) {
+func makeEncryptStream(settings Settings, seeds seeds, password string, keyfiles []io.Reader) (*encryptStream, error) {
 	header := header{}
 	header.settings = settings
 	header.seeds = seeds
-	keys, err := newKeys(settings, seeds, password, nil)
+	keys, err := newKeys(settings, seeds, password, keyfiles)
 	if err != nil {
 		return nil, fmt.Errorf("generating keys: %w", err)
 	}

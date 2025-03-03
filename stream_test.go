@@ -34,7 +34,7 @@ func TestEncryptStream(t *testing.T) {
 		t.Fatal("generating seeds:", err)
 	}
 	password := "password"
-	s, err := makeEncryptStream(settings, seeds, password)
+	s, err := makeEncryptStream(settings, seeds, password, nil)
 	if err != nil {
 		t.Fatal("making encrypt stream:", err)
 	}

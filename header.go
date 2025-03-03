@@ -12,6 +12,7 @@ const (
 )
 
 type refs struct {
+	// TODO move these to keys
 	keyRef     [64]byte
 	keyfileRef [32]byte
 	macTag     [64]byte

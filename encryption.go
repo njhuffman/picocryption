@@ -134,7 +134,7 @@ func EncryptHeadless(
 		return nil, fmt.Errorf("generating seeds: %w", err)
 	}
 
-	encryptionStream, err := makeEncryptStream(settings, seeds, password)
+	encryptionStream, err := makeEncryptStream(settings, seeds, password, keyfiles)
 	if err != nil {
 		return nil, fmt.Errorf("making encryption stream: %w", err)
 	}

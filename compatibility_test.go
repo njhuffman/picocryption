@@ -26,9 +26,9 @@ func encryptWithSeeds(
 	settings Settings,
 	out io.Writer,
 ) ([]byte, error) {
-	encryptor, err := newEncryptor(out, settings, seeds, password, keyfiles)
+	stream, err := makeEncryptStream(settings, seeds, password, keyfiles)
 	if err != nil {
-		return nil, fmt.Errorf("creating encryptor: %w", err)
+		return nil, fmt.Errorf("creating encrypt stream: %w", err)
 	}
 	buf := make([]byte, readSize)
 	for {
@@ -41,24 +41,32 @@ func encryptWithSeeds(
 				return nil, fmt.Errorf("reading input: %w", err)
 			}
 		}
-		err = encryptor.write(buf[:n])
+		data, err := stream.stream(buf[:n])
 		if err != nil {
 			return nil, fmt.Errorf("encrypting input: %w", err)
+		}
+		_, err = out.Write(data)
+		if err != nil {
+			return nil, fmt.Errorf("writing encrypted data: %w", err)
 		}
 		if eof {
 			break
 		}
 	}
 
-	err = encryptor.close()
+	data, err := stream.flush()
 	if err != nil {
-		return nil, fmt.Errorf("closing encryptor: %w", err)
+		return nil, fmt.Errorf("flushing encryptor: %w", err)
 	}
-	header, err := encryptor.makeHeader()
+	_, err = out.Write(data)
 	if err != nil {
-		return header, fmt.Errorf("making header: %w", err)
+		return nil, fmt.Errorf("writing encrypted data: %w", err)
 	}
-	return header, nil
+	headerBytes, err := stream.header.bytes(password)
+	if err != nil {
+		return nil, fmt.Errorf("making header: %w", err)
+	}
+	return headerBytes, nil
 }
 
 func makeExample(
@@ -98,7 +106,7 @@ func testEncryption(example Example, t *testing.T) {
 	r := bytes.NewBuffer(d)
 	headless := bytes.NewBuffer([]byte{})
 
-	header, err := encryptWithSeeds(
+	headerBytes, err := encryptWithSeeds(
 		example.header.seeds,
 		r,
 		example.password,
@@ -111,7 +119,7 @@ func testEncryption(example Example, t *testing.T) {
 	}
 
 	headed := bytes.NewBuffer([]byte{})
-	err = PrependHeader(headless, headed, header)
+	err = PrependHeader(headless, headed, headerBytes)
 	if err != nil {
 		t.Fatal("adding header:", err)
 	}
