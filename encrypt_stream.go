@@ -5,6 +5,8 @@ import (
 	"io"
 )
 
+var picocryptVersion = "v1.43"
+
 type encryptStream struct {
 	header  *header
 	streams []streamerFlusher
