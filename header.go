@@ -12,7 +12,6 @@ const (
 )
 
 type refs struct {
-	// TODO move these to keys
 	keyRef     [64]byte
 	keyfileRef [32]byte
 	macTag     [64]byte
@@ -80,7 +79,7 @@ func (header *header) bytes(password string) ([]byte, error) {
 			return nil, fmt.Errorf("creating deniability cipher: %w", err)
 		}
 		deny.deny(headerBytes)
-		headerBytes = append(append(headerBytes, deny.salt[:]...), deny.nonce[:]...)
+		headerBytes = append(append(deny.salt[:], deny.nonce[:]...), headerBytes...)
 	}
 
 	return headerBytes, nil

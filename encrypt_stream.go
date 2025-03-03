@@ -28,6 +28,8 @@ func makeEncryptStream(settings Settings, seeds seeds, password string, keyfiles
 	if err != nil {
 		return nil, fmt.Errorf("generating keys: %w", err)
 	}
+	header.refs.keyRef = keys.keyRef
+	header.refs.keyfileRef = keys.keyfileRef
 
 	streams := []streamerFlusher{}
 
@@ -43,12 +45,12 @@ func makeEncryptStream(settings Settings, seeds seeds, password string, keyfiles
 	}
 	streams = append(streams, macStream)
 
+	ss := makeSizeStream(&header)
+	streams = append(streams, &ss)
+
 	if settings.ReedSolomon {
 		streams = append(streams, makeRSEncodeStream())
 	}
-
-	ss := makeSizeStream(&header)
-	streams = append(streams, &ss)
 
 	if settings.Deniability {
 		deniabilityStream := newDeniabilityStream(password, &header)

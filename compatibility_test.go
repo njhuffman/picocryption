@@ -84,7 +84,7 @@ func makeExample(
 	if err != nil {
 		return Example{}, err
 	}
-	log.Println("Header:", header)
+	log.Println("Header: (", header.size(), ")", header)
 	return Example{decrypted, encrypted, password, keyfiles, header}, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"crypto/cipher"
 	"fmt"
 	"io"
+	"log"
 
 	"github.com/Picocrypt/serpent"
 	"golang.org/x/crypto/chacha20"
@@ -188,6 +189,7 @@ func (rc *rotatingCipher) flush() ([]byte, error) {
 
 func newDeniabilityStream(password string, header *header) streamerFlusher {
 	nonceManager := denyNonceManager{header: header}
+	log.Println("Using denySalt", header.seeds.denySalt)
 	denyKey := generateDenyKey(password, header.seeds.denySalt)
 	return &rotatingCipher{
 		xorCipher: &chachaCipher{

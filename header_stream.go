@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -72,7 +73,7 @@ func makeVersionReader(damageTracker *damageTracker) versionReader {
 type deniabilityReader struct {
 	password string
 	buff     buffer
-	deny     *deniability
+	deny     streamer
 	header   *header
 }
 
@@ -96,16 +97,13 @@ func (d *deniabilityReader) stream(p []byte) ([]byte, error) {
 				copy(nonce[:], d.buff.data[len(salt):])
 				d.header.seeds.denyNonce = nonce
 				d.header.seeds.denySalt = salt
-				key := generateDenyKey(d.password, salt)
-				d.deny, err = newDeniability(key, nonce, salt, 0)
-				if err != nil {
-					return nil, fmt.Errorf("creating deniability cipher: %w", err)
-				}
+				d.deny = newDeniabilityStream(d.password, d.header)
 			}
 		}
 	}
 	if d.deny != nil {
-		err := d.deny.deny(p)
+		var err error
+		p, err = d.deny.stream(p)
 		if err != nil {
 			return nil, fmt.Errorf("denying data: %w", err)
 		}
@@ -313,6 +311,7 @@ func (s *sizeStream) stream(p []byte) ([]byte, error) {
 
 func (s *sizeStream) flush() ([]byte, error) {
 	s.header.fileSize = s.counter
+	log.Println("File size:", s.header.fileSize)
 	return nil, nil
 }
 
