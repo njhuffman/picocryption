@@ -27,6 +27,7 @@ type header struct {
 	seeds    seeds
 	refs     refs
 	usesKf   bool
+	fileSize int64
 }
 
 func (header *header) size() int {
@@ -49,8 +50,7 @@ func (header *header) bytes(password string) ([]byte, error) {
 		header.usesKf,
 		header.settings.OrderedKf,
 		header.settings.ReedSolomon,
-		false, // TODO need to implement this
-		// header.fileSize%(1<<20) > (1<<20)-chunkSize,
+		header.fileSize%(1<<20) > (1<<20)-chunkSize,
 	}
 	flagBytes := make([]byte, len(flags))
 	for i, f := range flags {

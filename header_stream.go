@@ -296,3 +296,22 @@ func makeHeaderStream(password string, header *header, damageTracker *damageTrac
 		makeSliceStream(header.refs.macTag[:], damageTracker),
 	}
 }
+
+type sizeStream struct {
+	header  *header
+	counter int64
+}
+
+func (s *sizeStream) stream(p []byte) ([]byte, error) {
+	s.counter += int64(len(p))
+	return p, nil
+}
+
+func (s *sizeStream) flush() ([]byte, error) {
+	s.header.fileSize = s.counter
+	return nil, nil
+}
+
+func makeSizeStream(header *header) sizeStream {
+	return sizeStream{header: header}
+}

@@ -44,6 +44,9 @@ func makeEncryptStream(settings Settings, seeds seeds, password string) (*encryp
 		streams = append(streams, makeRSEncodeStream())
 	}
 
+	ss := makeSizeStream(&header)
+	streams = append(streams, &ss)
+
 	if settings.Deniability {
 		deniabilityStream := newDeniabilityStream(password, &header)
 		mockHeaderData := make([]byte, baseHeaderSize+3*len(settings.Comments))
