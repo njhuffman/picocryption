@@ -138,6 +138,7 @@ func (f *flagStream) stream(p []byte) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("decoding flags: %w", err)
 			}
+			log.Println("Flags:", data)
 			f.header.settings.Paranoid = data[0] == 1
 			f.header.usesKf = data[1] == 1
 			f.header.settings.OrderedKf = data[2] == 1

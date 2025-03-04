@@ -30,6 +30,7 @@ func makeEncryptStream(settings Settings, seeds seeds, password string, keyfiles
 	}
 	header.refs.keyRef = keys.keyRef
 	header.refs.keyfileRef = keys.keyfileRef
+	header.usesKf = len(keyfiles) > 0
 
 	streams := []streamerFlusher{}
 

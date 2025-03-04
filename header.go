@@ -25,15 +25,6 @@ type header struct {
 	fileSize int64
 }
 
-func (header *header) size() int {
-	size := baseHeaderSize + 3*len(header.settings.Comments)
-	if header.settings.Deniability {
-		size += len(header.seeds.denySalt)
-		size += len(header.seeds.denyNonce)
-	}
-	return size
-}
-
 func (header *header) bytes(password string) ([]byte, error) {
 	data := [][]byte{[]byte(picocryptVersion)}
 	data = append(data, []byte(fmt.Sprintf("%05d", len(header.settings.Comments))))
@@ -62,7 +53,7 @@ func (header *header) bytes(password string) ([]byte, error) {
 	data = append(data, header.refs.keyfileRef[:])
 	data = append(data, header.refs.macTag[:])
 
-	headerBytes := make([]byte, header.size())
+	headerBytes := make([]byte, baseHeaderSize+3*len(header.settings.Comments))
 	written := 0
 	for _, d := range data {
 		err := rsEncode(headerBytes[written:written+len(d)*3], d)
