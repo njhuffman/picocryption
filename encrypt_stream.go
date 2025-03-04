@@ -21,16 +21,21 @@ func (es *encryptStream) flush() ([]byte, error) {
 }
 
 func makeEncryptStream(settings Settings, seeds seeds, password string, keyfiles []io.Reader) (*encryptStream, error) {
-	header := header{}
-	header.settings = settings
-	header.seeds = seeds
 	keys, err := newKeys(settings, seeds, password, keyfiles)
 	if err != nil {
 		return nil, fmt.Errorf("generating keys: %w", err)
 	}
-	header.refs.keyRef = keys.keyRef
-	header.refs.keyfileRef = keys.keyfileRef
-	header.usesKf = len(keyfiles) > 0
+	header := header{
+		settings: settings,
+		seeds:    seeds,
+		refs: refs{
+			keyRef:     keys.keyRef,
+			keyfileRef: keys.keyfileRef,
+			macTag:     [64]byte{}, // will be filled by mac stream
+		},
+		usesKf:   len(keyfiles) > 0,
+		fileSize: 0, // will be filled by size stream
+	}
 
 	streams := []streamerFlusher{}
 
