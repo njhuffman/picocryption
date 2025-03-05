@@ -1,28 +1,16 @@
 package picocryption
 
 import (
-	"bytes"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
-	"encoding/binary"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/sha3"
 )
 
-type seeds struct {
-	// export to allow binary package to fill
-	Salt      [16]byte
-	Nonce     [24]byte
-	SerpentIV [16]byte
-	HkdfSalt  [32]byte
-	DenySalt  [16]byte
-	DenyNonce [24]byte
-}
 
 type keys struct {
 	settings     Settings
@@ -190,15 +178,4 @@ func readFromHkdf(hkdf io.Reader) ([32]byte, error) {
 		return key, fmt.Errorf("reading hkdf: %w", err)
 	}
 	return key, nil
-}
-
-func randomSeeds() (seeds, error) {
-	raw := make([]byte, binary.Size(seeds{}))
-	_, err := io.ReadFull(rand.Reader, raw)
-	if err != nil {
-		return seeds{}, err
-	}
-	decoded := seeds{}
-	err = binary.Read(bytes.NewBuffer(raw), binary.BigEndian, &decoded)
-	return decoded, err
 }

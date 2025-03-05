@@ -2,6 +2,10 @@ package picocryption
 
 import (
 	"fmt"
+	"bytes"
+	"crypto/rand"
+	"encoding/binary"
+	"io"
 )
 
 const (
@@ -10,6 +14,16 @@ const (
 	commentSize    = 5
 	flagsSize      = 5
 )
+
+type seeds struct {
+	// export to allow binary package to fill
+	Salt      [16]byte
+	Nonce     [24]byte
+	SerpentIV [16]byte
+	HkdfSalt  [32]byte
+	DenySalt  [16]byte
+	DenyNonce [24]byte
+}
 
 type refs struct {
 	keyRef     [64]byte
@@ -74,4 +88,15 @@ func (header *header) bytes(password string) ([]byte, error) {
 	}
 
 	return headerBytes, nil
+}
+
+func randomSeeds() (seeds, error) {
+	raw := make([]byte, binary.Size(seeds{}))
+	_, err := io.ReadFull(rand.Reader, raw)
+	if err != nil {
+		return seeds{}, err
+	}
+	decoded := seeds{}
+	err = binary.Read(bytes.NewBuffer(raw), binary.BigEndian, &decoded)
+	return decoded, err
 }
