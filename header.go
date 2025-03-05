@@ -45,10 +45,10 @@ func (header *header) bytes(password string) ([]byte, error) {
 		}
 	}
 	data = append(data, flagBytes)
-	data = append(data, header.seeds.salt[:])
-	data = append(data, header.seeds.hkdfSalt[:])
-	data = append(data, header.seeds.serpentIV[:])
-	data = append(data, header.seeds.nonce[:])
+	data = append(data, header.seeds.Salt[:])
+	data = append(data, header.seeds.HkdfSalt[:])
+	data = append(data, header.seeds.SerpentIV[:])
+	data = append(data, header.seeds.Nonce[:])
 	data = append(data, header.refs.keyRef[:])
 	data = append(data, header.refs.keyfileRef[:])
 	data = append(data, header.refs.macTag[:])
@@ -70,7 +70,7 @@ func (header *header) bytes(password string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("denying header data: %w", err)
 		}
-		headerBytes = append(append(header.seeds.denySalt[:], header.seeds.denyNonce[:]...), headerBytes...)
+		headerBytes = append(append(header.seeds.DenySalt[:], header.seeds.DenyNonce[:]...), headerBytes...)
 	}
 
 	return headerBytes, nil

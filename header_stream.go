@@ -95,8 +95,8 @@ func (d *deniabilityReader) stream(p []byte) ([]byte, error) {
 				nonce := [24]byte{}
 				copy(salt[:], d.buff.data[:len(salt)])
 				copy(nonce[:], d.buff.data[len(salt):])
-				d.header.seeds.denyNonce = nonce
-				d.header.seeds.denySalt = salt
+				d.header.seeds.DenyNonce = nonce
+				d.header.seeds.DenySalt = salt
 				d.deny = newDeniabilityStream(d.password, d.header)
 			}
 		}
@@ -290,10 +290,10 @@ func makeHeaderStream(password string, header *header, damageTracker *damageTrac
 		makeVersionReader(damageTracker),
 		makeCommentStream(header, damageTracker),
 		makeFlagStream(header, damageTracker),
-		makeSliceStream(header.seeds.salt[:], damageTracker),
-		makeSliceStream(header.seeds.hkdfSalt[:], damageTracker),
-		makeSliceStream(header.seeds.serpentIV[:], damageTracker),
-		makeSliceStream(header.seeds.nonce[:], damageTracker),
+		makeSliceStream(header.seeds.Salt[:], damageTracker),
+		makeSliceStream(header.seeds.HkdfSalt[:], damageTracker),
+		makeSliceStream(header.seeds.SerpentIV[:], damageTracker),
+		makeSliceStream(header.seeds.Nonce[:], damageTracker),
 		makeSliceStream(header.refs.keyRef[:], damageTracker),
 		makeSliceStream(header.refs.keyfileRef[:], damageTracker),
 		makeSliceStream(header.refs.macTag[:], damageTracker),

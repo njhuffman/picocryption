@@ -1,11 +1,13 @@
 package picocryption
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
+	"encoding/binary"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/hkdf"
@@ -13,12 +15,13 @@ import (
 )
 
 type seeds struct {
-	salt      [16]byte
-	nonce     [24]byte
-	serpentIV [16]byte
-	hkdfSalt  [32]byte
-	denySalt  [16]byte
-	denyNonce [24]byte
+	// export to allow binary package to fill
+	Salt      [16]byte
+	Nonce     [24]byte
+	SerpentIV [16]byte
+	HkdfSalt  [32]byte
+	DenySalt  [16]byte
+	DenyNonce [24]byte
 }
 
 type keys struct {
@@ -126,7 +129,7 @@ func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Read
 	}
 	duplicateKeyfiles := errors.Is(err, ErrDuplicateKeyfiles)
 
-	passwordKey := generatePasswordKey(password, seeds.salt, settings.Paranoid)
+	passwordKey := generatePasswordKey(password, seeds.Salt, settings.Paranoid)
 
 	var keyRef [64]byte
 	err = computeHash(sha3.New512(), passwordKey[:], keyRef[:])
@@ -142,10 +145,10 @@ func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Read
 
 	var denyKey [32]byte
 	if settings.Deniability {
-		denyKey = generateDenyKey(password, seeds.denySalt)
+		denyKey = generateDenyKey(password, seeds.DenySalt)
 	}
 
-	hkdf := hkdf.New(sha3.New256, key[:], seeds.hkdfSalt[:], nil)
+	hkdf := hkdf.New(sha3.New256, key[:], seeds.HkdfSalt[:], nil)
 	macKey, err := readFromHkdf(hkdf)
 	if err != nil {
 		return keys{}, err
@@ -190,19 +193,12 @@ func readFromHkdf(hkdf io.Reader) ([32]byte, error) {
 }
 
 func randomSeeds() (seeds, error) {
-	var seeds seeds
-	fields := [][]byte{
-		seeds.denyNonce[:],
-		seeds.denySalt[:],
-		seeds.hkdfSalt[:],
-		seeds.nonce[:],
-		seeds.salt[:],
-		seeds.serpentIV[:],
+	raw := make([]byte, binary.Size(seeds{}))
+	_, err := io.ReadFull(rand.Reader, raw)
+	if err != nil {
+		return seeds{}, err
 	}
-	for _, field := range fields {
-		if _, err := rand.Read(field); err != nil {
-			return seeds, err
-		}
-	}
-	return seeds, nil
+	decoded := seeds{}
+	err = binary.Read(bytes.NewBuffer(raw), binary.BigEndian, &decoded)
+	return decoded, err
 }

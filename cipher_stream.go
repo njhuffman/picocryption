@@ -30,8 +30,8 @@ type nonceIvManager struct {
 
 func (nm *nonceIvManager) extendTo(i int) error {
 	if len(nm.chachaNonces) == 0 {
-		nm.chachaNonces = [][24]byte{nm.seeds.nonce}
-		nm.serpentIVs = [][16]byte{nm.seeds.serpentIV}
+		nm.chachaNonces = [][24]byte{nm.seeds.Nonce}
+		nm.serpentIVs = [][16]byte{nm.seeds.SerpentIV}
 	}
 	for i >= len(nm.chachaNonces) {
 		chachaNonce := [24]byte{}
@@ -81,7 +81,7 @@ type denyNonceManager struct {
 
 func (dnm *denyNonceManager) extendTo(i int) error {
 	if len(dnm.nonces) == 0 {
-		dnm.nonces = append(dnm.nonces, dnm.header.seeds.denyNonce)
+		dnm.nonces = append(dnm.nonces, dnm.header.seeds.DenyNonce)
 	}
 	for i >= len(dnm.nonces) {
 		previous := dnm.nonces[len(dnm.nonces)-1]
@@ -198,8 +198,8 @@ func (rc *rotatingCipher) flush() ([]byte, error) {
 
 func newDeniabilityStream(password string, header *header) streamerFlusher {
 	nonceManager := denyNonceManager{header: header}
-	log.Println("Using denySalt", header.seeds.denySalt)
-	denyKey := generateDenyKey(password, header.seeds.denySalt)
+	log.Println("Using denySalt", header.seeds.DenySalt)
+	denyKey := generateDenyKey(password, header.seeds.DenySalt)
 	return &rotatingCipher{
 		xorCipher: &chachaCipher{
 			nonceManager: &nonceManager,

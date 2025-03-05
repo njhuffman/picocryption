@@ -227,7 +227,7 @@ func PrependHeader(
 func HeaderSize(settings Settings) int {
 	size := baseHeaderSize + 3*len(settings.Comments)
 	if settings.Deniability {
-		size += len(seeds{}.denyNonce) + len(seeds{}.denySalt)
+		size += len(seeds{}.DenyNonce) + len(seeds{}.DenySalt)
 	}
 	return size
 }
