@@ -35,6 +35,25 @@ func (b *buffer) add(p []byte) []byte {
 	return p
 }
 
+func parseVersion(versionBytes []byte) (bool, string, error) {
+	if len(versionBytes) != (versionSize * 3) {
+		return false, "", fmt.Errorf("invalid version length: %d", len(versionBytes))
+	}
+	v := make([]byte, versionSize)
+	damaged, _, err := rsDecode(v, versionBytes[:], false)
+	if err != nil {
+		return damaged, "", fmt.Errorf("decoding version: %w", err)
+	}
+	valid, err := regexp.Match(`^v1\.\d{2}`, v)
+	if err != nil {
+		return damaged, "", fmt.Errorf("parsing version format: %w", err)
+	}
+	if !valid {
+		return damaged, "", nil
+	}
+	return damaged, string(v), nil
+}
+
 type versionReader struct {
 	buff          buffer
 	damageTracker *damageTracker
@@ -45,17 +64,12 @@ func (v *versionReader) stream(p []byte) ([]byte, error) {
 		p = v.buff.add(p)
 		if v.buff.isFull() {
 			// check that the version is actually good
-			version := make([]byte, versionSize)
-			damaged, _, err := rsDecode(version, v.buff.data, false)
+			damaged, version, err := parseVersion(v.buff.data)
 			v.damageTracker.damage = v.damageTracker.damage || damaged
 			if err != nil {
-				return nil, fmt.Errorf("decoding version: %w", err)
+				return nil, fmt.Errorf("parsing version: %w", err)
 			}
-			valid, err := regexp.Match(`^v1\.\d{2}`, []byte(version))
-			if err != nil {
-				return nil, fmt.Errorf("parsing version format: %w", err)
-			}
-			if !valid {
+			if version == "" {
 				return nil, ErrHeaderCorrupted
 			}
 		}
@@ -81,12 +95,12 @@ func (d *deniabilityReader) stream(p []byte) ([]byte, error) {
 	if !d.buff.isFull() {
 		p = d.buff.add(p)
 		if d.buff.isFull() {
-			// if the opening data is a valid version, then the deniability
-			// reader doesn't need to do anything. If the opening data is not
-			// a valid version, then the deniability reader needs to activate.
-			vr := makeVersionReader(&damageTracker{})
-			_, err := vr.stream(d.buff.data)
-			if err == nil {
+			// Don't catch damaged flag, it is handled by the version stream
+			_, version, err := parseVersion(d.buff.data[:versionSize*3])
+			if err != nil {
+				return nil, fmt.Errorf("parsing version: %w", err)
+			}
+			if version != "" {
 				d.header.settings.Deniability = false
 				p = append(d.buff.data, p...)
 			} else {
