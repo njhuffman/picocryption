@@ -64,13 +64,13 @@ func (header *header) bytes(password string) ([]byte, error) {
 	}
 
 	if header.settings.Deniability {
-		denyKey := generateDenyKey(password, header.seeds.denySalt)
-		deny, err := newDeniability(denyKey, header.seeds.denyNonce, header.seeds.denySalt, 0)
+		denyStream := newDeniabilityStream(password, header)
+		var err error
+		headerBytes, err = denyStream.stream(headerBytes)
 		if err != nil {
-			return nil, fmt.Errorf("creating deniability cipher: %w", err)
+			return nil, fmt.Errorf("denying header data: %w", err)
 		}
-		deny.deny(headerBytes)
-		headerBytes = append(append(deny.salt[:], deny.nonce[:]...), headerBytes...)
+		headerBytes = append(append(header.seeds.denySalt[:], header.seeds.denyNonce[:]...), headerBytes...)
 	}
 
 	return headerBytes, nil
