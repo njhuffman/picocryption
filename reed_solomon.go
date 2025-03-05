@@ -41,7 +41,7 @@ func getFEC(encoded, decoded []byte) (*infectious.FEC, error) {
 func rsEncode(dst, src []byte) error {
 	fec, err := getFEC(dst, src)
 	if err != nil {
-		return fmt.Errorf("failed to get FEC: %w", err)
+		return fmt.Errorf("getting FEC: %w", err)
 	}
 	return fec.Encode(src, func(s infectious.Share) { dst[s.Number] = s.Data[0] })
 }
@@ -64,7 +64,7 @@ func rsDecode(dst, src []byte, skip bool) (bool, bool, error) {
 	// Attempt to recover damaged data
 	fec, err := getFEC(src, dst)
 	if err != nil {
-		return false, false, fmt.Errorf("getting FEC: %w", err)
+		return true, false, fmt.Errorf("getting FEC: %w", err)
 	}
 	tmp := make([]infectious.Share, fec.Total())
 	for i := 0; i < fec.Total(); i++ {
@@ -82,72 +82,6 @@ func rsDecode(dst, src []byte, skip bool) (bool, bool, error) {
 	return true, true, nil
 }
 
-type rsBodyEncoder struct {
-	buffer []byte
-}
-
-func (r *rsBodyEncoder) encode(data []byte) []byte {
-	r.buffer = append(r.buffer, data...)
-	nChunks := len(r.buffer) / chunkSize
-	rsData := make([]byte, nChunks*encodedSize)
-	for i := 0; i < nChunks; i++ {
-		rsEncode(rsData[i*encodedSize:(i+1)*encodedSize], r.buffer[i*chunkSize:(i+1)*chunkSize])
-	}
-	r.buffer = r.buffer[nChunks*chunkSize:]
-	return rsData
-}
-
-func (r *rsBodyEncoder) flush() []byte {
-	padding := make([]byte, chunkSize-len(r.buffer))
-	for i := range padding {
-		padding[i] = byte(chunkSize - len(r.buffer))
-	}
-	dst := make([]byte, encodedSize)
-	rsEncode(dst, append(r.buffer, padding...))
-	return dst
-}
-
-type rsBodyDecoder struct {
-	buffer []byte
-	skip   bool
-}
-
-func (r *rsBodyDecoder) decode(data []byte) ([]byte, bool, bool, error) {
-	r.buffer = append(r.buffer, data...)
-	nChunks := len(r.buffer) / encodedSize
-	// The last chunk might be padded, so keep it in the buffer for Flush
-	if ((len(r.buffer) % encodedSize) == 0) && (nChunks > 0) {
-		nChunks -= 1
-	}
-	rsData := make([]byte, nChunks*chunkSize)
-	damaged := false
-	corrupted := false
-	for i := 0; i < nChunks; i++ {
-		src := r.buffer[i*encodedSize : (i+1)*encodedSize]
-		dst := rsData[i*chunkSize : (i+1)*chunkSize]
-		dmg, crp, err := rsDecode(dst, src, r.skip)
-		damaged = damaged || dmg
-		corrupted = corrupted || crp
-		if err != nil {
-			return nil, damaged, corrupted, err
-		}
-	}
-	r.buffer = r.buffer[nChunks*encodedSize:]
-	return rsData, damaged, corrupted, nil
-}
-
-func (r *rsBodyDecoder) flush() ([]byte, bool, bool, error) {
-	res := make([]byte, chunkSize)
-	damaged, corrupted, err := rsDecode(res, r.buffer, r.skip)
-	if err != nil {
-		return nil, damaged, corrupted, err
-	}
-	keep := chunkSize - int(res[chunkSize-1])
-	if keep < chunkSize {
-		return res[:keep], damaged, corrupted, err
-	}
-	return res, damaged, corrupted, ErrBodyCorrupted
-}
 
 type rsEncodeStream struct {
 	buff []byte
@@ -175,7 +109,7 @@ func (r *rsEncodeStream) flush() ([]byte, error) {
 	dst := make([]byte, encodedSize)
 	err := rsEncode(dst, append(r.buff, padding...))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding final chunk: %w", err)
 	}
 	return dst, nil
 }
@@ -189,23 +123,22 @@ type rsDecodeStream struct {
 func (r *rsDecodeStream) stream(p []byte) ([]byte, error) {
 	r.buff = append(r.buff, p...)
 	nChunks := len(r.buff) / encodedSize
-	// The last chunk might be padded, so keep it in the buffer for Flush
+	// The last chunk might be padded, so keep it in the buffer for flush
 	if ((len(r.buff) % encodedSize) == 0) && (nChunks > 0) {
 		nChunks -= 1
 	}
 	rsData := make([]byte, nChunks*chunkSize)
-	var decodeErr error
 	for i := 0; i < nChunks; i++ {
 		src := r.buff[i*encodedSize : (i+1)*encodedSize]
 		dst := rsData[i*chunkSize : (i+1)*chunkSize]
 		damaged, _, err := rsDecode(dst, src, r.skip)
 		r.damageTracker.damage = r.damageTracker.damage || damaged
 		if err != nil {
-			decodeErr = err
+			return nil, err
 		}
 	}
 	r.buff = r.buff[nChunks*encodedSize:]
-	return rsData, decodeErr
+	return rsData, nil
 }
 
 func (r *rsDecodeStream) flush() ([]byte, error) {
@@ -216,7 +149,7 @@ func (r *rsDecodeStream) flush() ([]byte, error) {
 		return nil, err
 	}
 	keep := chunkSize - int(res[chunkSize-1])
-	if keep < chunkSize {
+	if (keep >= 0) && (keep < chunkSize) {
 		return res[:keep], err
 	}
 	return nil, ErrBodyCorrupted
