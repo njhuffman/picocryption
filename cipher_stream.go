@@ -24,10 +24,15 @@ type ivManager interface {
 type nonceIvManager struct {
 	chachaNonces [][24]byte
 	serpentIVs   [][16]byte
+	seeds *seeds
 	hkdf         io.Reader
 }
 
 func (nm *nonceIvManager) extendTo(i int) error {
+	if len(nm.chachaNonces) == 0 {
+		nm.chachaNonces = [][24]byte{nm.seeds.nonce}
+		nm.serpentIVs = [][16]byte{nm.seeds.serpentIV}
+	}
 	for i >= len(nm.chachaNonces) {
 		chachaNonce := [24]byte{}
 		serpentIV := [16]byte{}
@@ -61,11 +66,10 @@ func (nm *nonceIvManager) iv(i int) ([16]byte, error) {
 	return nm.serpentIVs[i], nil
 }
 
-func newNonceManager(keys keys) *nonceIvManager {
+func newNonceManager(hkdf io.Reader, seeds *seeds) *nonceIvManager {
 	nm := &nonceIvManager{
-		hkdf:         keys.hkdf,
-		chachaNonces: [][24]byte{keys.seeds.nonce},
-		serpentIVs:   [][16]byte{keys.seeds.serpentIV},
+		seeds: seeds,
+		hkdf:  hkdf,
 	}
 	return nm
 }
@@ -205,7 +209,7 @@ func newDeniabilityStream(password string, header *header) streamerFlusher {
 }
 
 func newEncryptionStreams(keys keys, header *header) ([]streamerFlusher, error) {
-	nonceIvManager := newNonceManager(keys)
+	nonceIvManager := newNonceManager(keys.hkdf, &(header.seeds))
 	chachaStream := &rotatingCipher{
 		xorCipher: &chachaCipher{
 			nonceManager: nonceIvManager,
