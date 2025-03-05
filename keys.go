@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"bytes"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/hkdf"
@@ -31,17 +32,15 @@ func xor(a, b [32]byte) [32]byte {
 }
 
 func generateKeyfileKey(ordered bool, keyfiles []io.Reader) ([32]byte, error) {
-	var key [32]byte
-
 	if len(keyfiles) == 0 {
-		return key, nil
+		return [32]byte{}, nil
 	}
 
 	hashes := make([][32]byte, len(keyfiles))
 	hasher := sha3.New256()
 	for i, file := range keyfiles {
-		if err := hashKeyfile(file, hasher, hashes[i][:]); err != nil {
-			return key, err
+		if err := computeHash(hasher, file, hashes[i][:]); err != nil {
+			return [32]byte{}, err
 		}
 		if !ordered {
 			hasher.Reset()
@@ -49,35 +48,21 @@ func generateKeyfileKey(ordered bool, keyfiles []io.Reader) ([32]byte, error) {
 	}
 
 	if ordered {
+		key := [32]byte{}
 		copy(key[:], hasher.Sum(nil))
 		return key, nil
 	}
 
-	key = combineHashes(hashes)
+	key := [32]byte{}
+	for _, hash := range hashes {
+		key = xor(key, hash)
+	}
 	if hasDuplicates(hashes) {
 		return key, ErrDuplicateKeyfiles
 	}
-
 	return key, nil
 }
 
-func hashKeyfile(reader io.Reader, hasher hash.Hash, hashBuf []byte) error {
-	buf, err := io.ReadAll(reader)
-	if err != nil {
-		return fmt.Errorf("reading keyfile: %w", err)
-	}
-	hasher.Write(buf)
-	copy(hashBuf, hasher.Sum(nil))
-	return nil
-}
-
-func combineHashes(hashes [][32]byte) [32]byte {
-	var combined [32]byte
-	for _, hash := range hashes {
-		combined = xor(combined, hash)
-	}
-	return combined
-}
 
 func hasDuplicates(hashes [][32]byte) bool {
 	hashSet := make(map[string]struct{}, len(hashes))
@@ -92,13 +77,13 @@ func hasDuplicates(hashes [][32]byte) bool {
 }
 
 func generatePasswordKey(password string, salt [16]byte, paranoid bool) [32]byte {
-	var key [32]byte
 	iterations := uint32(4)
 	parallelism := uint8(4)
 	if paranoid {
 		iterations = 8
 		parallelism = 8
 	}
+	var key [32]byte
 	copy(key[:], argon2.IDKey([]byte(password), salt[:], iterations, 1<<20, parallelism, 32))
 	return key
 }
@@ -119,13 +104,13 @@ func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Read
 	passwordKey := generatePasswordKey(password, seeds.Salt, settings.Paranoid)
 
 	var keyRef [64]byte
-	err = computeHash(sha3.New512(), passwordKey[:], keyRef[:])
+	err = computeHash(sha3.New512(), bytes.NewBuffer(passwordKey[:]), keyRef[:])
 	if err != nil {
 		return keys{}, fmt.Errorf("creating keys: %w", err)
 	}
 	var keyfileRef [32]byte
 	if len(keyfiles) > 0 {
-		computeHash(sha3.New256(), keyfileKey[:], keyfileRef[:])
+		computeHash(sha3.New256(), bytes.NewBuffer(keyfileKey[:]), keyfileRef[:])
 	}
 
 	key := xor(keyfileKey, passwordKey)
@@ -136,13 +121,13 @@ func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Read
 	}
 
 	hkdf := hkdf.New(sha3.New256, key[:], seeds.HkdfSalt[:], nil)
-	macKey, err := readFromHkdf(hkdf)
-	if err != nil {
-		return keys{}, err
+	var macKey [32]byte
+	if _, err := io.ReadFull(hkdf, macKey[:]); err != nil {
+		return keys{}, fmt.Errorf("filling macKey: %w", err)
 	}
-	serpentKey, err := readFromHkdf(hkdf)
-	if err != nil {
-		return keys{}, err
+	var serpentKey [32]byte
+	if _, err := io.ReadFull(hkdf, serpentKey[:]); err != nil {
+		return keys{}, fmt.Errorf("filling serpentKey: %w", err)
 	}
 
 	keys := keys{
@@ -161,19 +146,16 @@ func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Read
 	return keys, nil
 }
 
-func computeHash(hasher hash.Hash, data []byte, dest []byte) error {
-	_, err := hasher.Write(data)
+func computeHash(hasher hash.Hash, src io.Reader, dest []byte) error {
+	data, err := io.ReadAll(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading src: %w", err)
+	}
+	_, err = hasher.Write(data)
+	if err != nil {
+		return fmt.Errorf("hashing src: %w", err)
 	}
 	copy(dest, hasher.Sum(nil))
 	return nil
 }
 
-func readFromHkdf(hkdf io.Reader) ([32]byte, error) {
-	var key [32]byte
-	if _, err := hkdf.Read(key[:]); err != nil {
-		return key, fmt.Errorf("reading hkdf: %w", err)
-	}
-	return key, nil
-}
