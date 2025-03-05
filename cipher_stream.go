@@ -11,6 +11,8 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+const resetNonceAt = int64(60 * (1 << 30))
+
 type nonceManager interface {
 	nonce(i int) ([24]byte, error)
 }
@@ -164,7 +166,10 @@ func (rc *rotatingCipher) stream(p []byte) ([]byte, error) {
 	}
 	i := int64(0)
 	for i < int64(len(p)) {
-		j := min(int64(len(p))-i, resetNonceAt-rc.writtenCounter)
+		j := int64(len(p))-i
+		if j > (resetNonceAt-rc.writtenCounter) {
+			j = resetNonceAt-rc.writtenCounter
+		}
 		err := rc.xor(p[i : i+j])
 		if err != nil {
 			return nil, err
