@@ -24,7 +24,6 @@ type seeds struct {
 type keys struct {
 	settings     Settings
 	seeds        seeds
-	usesKeyfiles bool
 	key          [32]byte
 	macKey       [32]byte
 	serpentKey   [32]byte
@@ -160,7 +159,6 @@ func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Read
 	keys := keys{
 		settings:     settings,
 		seeds:        seeds,
-		usesKeyfiles: len(keyfiles) > 0,
 		key:          key,
 		macKey:       macKey,
 		serpentKey:   serpentKey,
