@@ -4,7 +4,6 @@ import (
 	"crypto/cipher"
 	"fmt"
 	"io"
-	"log"
 
 	"github.com/Picocrypt/serpent"
 	"golang.org/x/crypto/chacha20"
@@ -121,11 +120,8 @@ func (sc *serpentCipher) reset(i int) error {
 	return nil
 }
 
-func (sc *serpentCipher) xor(p []byte) error {
-	if sc.header.settings.Paranoid {
-		sc.cipher.XORKeyStream(p, p)
-	}
-	return nil
+func (sc *serpentCipher) xor(p []byte) {
+	sc.cipher.XORKeyStream(p, p)
 }
 
 type chachaCipher struct {
@@ -143,13 +139,12 @@ func (cc *chachaCipher) reset(i int) error {
 	return err
 }
 
-func (cc *chachaCipher) xor(p []byte) error {
+func (cc *chachaCipher) xor(p []byte) {
 	cc.cipher.XORKeyStream(p, p)
-	return nil
 }
 
 type xorCipher interface {
-	xor(p []byte) error
+	xor(p []byte)
 	reset(i int) error
 }
 
@@ -174,15 +169,12 @@ func (rc *rotatingCipher) stream(p []byte) ([]byte, error) {
 		if j > (resetNonceAt - rc.writtenCounter) {
 			j = resetNonceAt - rc.writtenCounter
 		}
-		err := rc.xor(p[i : i+j])
-		if err != nil {
-			return nil, err
-		}
+		rc.xor(p[i : i+j])
 		rc.writtenCounter += j
 		if rc.writtenCounter == resetNonceAt {
 			rc.writtenCounter = 0
 			rc.resetCounter++
-			err = rc.reset(rc.resetCounter)
+			err := rc.reset(rc.resetCounter)
 			if err != nil {
 				return nil, err
 			}
@@ -198,7 +190,6 @@ func (rc *rotatingCipher) flush() ([]byte, error) {
 
 func newDeniabilityStream(password string, header *header) streamerFlusher {
 	nonceManager := denyNonceManager{header: header}
-	log.Println("Using denySalt", header.seeds.DenySalt)
 	denyKey := generateDenyKey(password, header.seeds.DenySalt)
 	return &rotatingCipher{
 		xorCipher: &chachaCipher{
@@ -228,6 +219,7 @@ func newEncryptionStreams(keys keys, header *header) ([]streamerFlusher, error) 
 			serpentBlock: sb,
 			ivManager:    nonceIvManager,
 			header:       header,
+			cipher:       nil, // will be set during streaming
 		},
 	}
 	return []streamerFlusher{chachaStream, serpentStream}, nil
