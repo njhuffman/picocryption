@@ -13,7 +13,6 @@ import (
 
 
 type keys struct {
-	settings     Settings
 	key          [32]byte
 	macKey       [32]byte
 	serpentKey   [32]byte
@@ -147,7 +146,6 @@ func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Read
 	}
 
 	keys := keys{
-		settings:     settings,
 		key:          key,
 		macKey:       macKey,
 		serpentKey:   serpentKey,
