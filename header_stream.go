@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -77,8 +76,8 @@ func (v *versionReader) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func makeVersionReader(damageTracker *damageTracker) versionReader {
-	return versionReader{
+func makeVersionReader(damageTracker *damageTracker) *versionReader {
+	return &versionReader{
 		buff:          buffer{size: versionSize * 3},
 		damageTracker: damageTracker,
 	}
@@ -125,11 +124,12 @@ func (d *deniabilityReader) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func makeDeniabilityReader(password string, header *header) deniabilityReader {
-	return deniabilityReader{
+func makeDeniabilityReader(password string, header *header) *deniabilityReader {
+	return &deniabilityReader{
 		password: password,
 		buff:     buffer{size: 16 + 24}, // 16 bytes for salt, 24 bytes for nonce
 		header:   header,
+		deny:     nil, // will be set during streaming
 	}
 }
 
@@ -152,7 +152,6 @@ func (f *flagStream) stream(p []byte) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("decoding flags: %w", err)
 			}
-			log.Println("Flags:", data)
 			f.header.settings.Paranoid = data[0] == 1
 			f.header.usesKf = data[1] == 1
 			f.header.settings.OrderedKf = data[2] == 1
@@ -162,12 +161,8 @@ func (f *flagStream) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func makeFlagStream(header *header, damageTracker *damageTracker) flagStream {
-	return flagStream{
-		buff:          buffer{size: flagsSize * 3},
-		header:        header,
-		damageTracker: damageTracker,
-	}
+func makeFlagStream(header *header, damageTracker *damageTracker) *flagStream {
+	return &flagStream{buffer{size: flagsSize * 3}, header, damageTracker}
 }
 
 type commentStream struct {
@@ -220,8 +215,8 @@ func (c *commentStream) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func makeCommentStream(header *header, damageTracker *damageTracker) commentStream {
-	return commentStream{
+func makeCommentStream(header *header, damageTracker *damageTracker) *commentStream {
+	return &commentStream{
 		lenBuff:       buffer{size: commentSize * 3},
 		header:        header,
 		damageTracker: damageTracker,
@@ -253,53 +248,26 @@ func (s *sliceStream) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func makeSliceStream(slice []byte, damagedTracker *damageTracker) sliceStream {
-	return sliceStream{
-		buff:          buffer{size: len(slice) * 3},
-		slice:         slice,
-		damageTracker: damagedTracker,
-	}
+func makeSliceStream(slice []byte, damagedTracker *damageTracker) *sliceStream {
+	return &sliceStream{buffer{size: len(slice) * 3}, slice, damagedTracker}
 }
 
 type headerStream struct {
-	header *header
-	deniabilityReader
-	versionReader
-	commentStream
-	flagStream
-	saltStream       sliceStream
-	hkdfSaltStream   sliceStream
-	serpentIVStream  sliceStream
-	nonceStream      sliceStream
-	keyRefStream     sliceStream
-	keyfileRefStream sliceStream
-	macTagStream     sliceStream
+	header  *header
+	streams []streamer
+	isDone  func() bool
 }
 
 func (h *headerStream) stream(p []byte) ([]byte, error) {
-	streams := []streamer{
-		&h.deniabilityReader,
-		&h.versionReader,
-		&h.commentStream,
-		&h.flagStream,
-		&h.saltStream,
-		&h.hkdfSaltStream,
-		&h.serpentIVStream,
-		&h.nonceStream,
-		&h.keyRefStream,
-		&h.keyfileRefStream,
-		&h.macTagStream,
+	return streamStack(h.streams, p)
+}
+
+func makeHeaderStream(password string, header *header, damageTracker *damageTracker) *headerStream {
+	macTagStream := makeSliceStream(header.refs.macTag[:], damageTracker)
+	isDone := func() bool {
+		return macTagStream.buff.isFull()
 	}
-	return streamStack(streams, p)
-}
-
-func (h *headerStream) isDone() bool {
-	return h.macTagStream.buff.isFull()
-}
-
-func makeHeaderStream(password string, header *header, damageTracker *damageTracker) headerStream {
-	return headerStream{
-		header,
+	streams := []streamer{
 		makeDeniabilityReader(password, header),
 		makeVersionReader(damageTracker),
 		makeCommentStream(header, damageTracker),
@@ -310,28 +278,9 @@ func makeHeaderStream(password string, header *header, damageTracker *damageTrac
 		makeSliceStream(header.seeds.Nonce[:], damageTracker),
 		makeSliceStream(header.refs.keyRef[:], damageTracker),
 		makeSliceStream(header.refs.keyfileRef[:], damageTracker),
-		makeSliceStream(header.refs.macTag[:], damageTracker),
+		macTagStream,
 	}
-}
-
-type sizeStream struct {
-	header  *header
-	counter int64
-}
-
-func (s *sizeStream) stream(p []byte) ([]byte, error) {
-	s.counter += int64(len(p))
-	return p, nil
-}
-
-func (s *sizeStream) flush() ([]byte, error) {
-	s.header.fileSize = s.counter
-	log.Println("File size:", s.header.fileSize)
-	return nil, nil
-}
-
-func makeSizeStream(header *header) sizeStream {
-	return sizeStream{header: header}
+	return &headerStream{header, streams, isDone}
 }
 
 func getHeader(r io.Reader, password string) (header, error) {

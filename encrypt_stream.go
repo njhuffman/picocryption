@@ -7,6 +7,21 @@ import (
 
 var picocryptVersion = "v1.43"
 
+type sizeStream struct {
+	header  *header
+	counter int64
+}
+
+func (s *sizeStream) stream(p []byte) ([]byte, error) {
+	s.counter += int64(len(p))
+	return p, nil
+}
+
+func (s *sizeStream) flush() ([]byte, error) {
+	s.header.fileSize = s.counter
+	return nil, nil
+}
+
 type encryptStream struct {
 	header  *header
 	streams []streamerFlusher
@@ -51,8 +66,8 @@ func makeEncryptStream(settings Settings, seeds seeds, password string, keyfiles
 	}
 	streams = append(streams, macStream)
 
-	ss := makeSizeStream(&header)
-	streams = append(streams, &ss)
+	sizeStream := sizeStream{header: &header}
+	streams = append(streams, &sizeStream)
 
 	if settings.ReedSolomon {
 		streams = append(streams, makeRSEncodeStream())

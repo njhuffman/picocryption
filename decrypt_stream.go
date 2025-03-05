@@ -57,9 +57,9 @@ func newMacStream(keys keys, header *header, encrypting bool) (*macStream, error
 }
 
 type decryptStream struct {
-	password string
-	keyfiles []io.Reader
-	headerStream
+	password      string
+	keyfiles      []io.Reader
+	headerStream  *headerStream
 	bodyStreams   []streamerFlusher
 	damageTracker *damageTracker
 }
@@ -90,7 +90,7 @@ func (ds *decryptStream) flush() ([]byte, error) {
 
 func (ds *decryptStream) makeBodyStreams() ([]streamerFlusher, error) {
 	// TODO implement keyfiles
-	keys, err := validateKeys(ds.header, ds.password, ds.keyfiles)
+	keys, err := validateKeys(ds.headerStream.header, ds.password, ds.keyfiles)
 	if err != nil {
 		// TODO should I include duplicate keyfiles error here?
 		return nil, err
@@ -98,15 +98,15 @@ func (ds *decryptStream) makeBodyStreams() ([]streamerFlusher, error) {
 	// TODO verify that the keyRef matches the header
 	streams := []streamerFlusher{}
 	// TODO: add reed solomon if configured
-	if ds.header.settings.ReedSolomon {
+	if ds.headerStream.header.settings.ReedSolomon {
 		streams = append(streams, makeRSDecodeStream(false, ds.damageTracker))
 	}
-	macStream, err := newMacStream(keys, ds.header, false)
+	macStream, err := newMacStream(keys, ds.headerStream.header, false)
 	if err != nil {
 		return nil, err
 	}
 	streams = append(streams, macStream)
-	encryptionStreams, err := newEncryptionStreams(keys, ds.header)
+	encryptionStreams, err := newEncryptionStreams(keys, ds.headerStream.header)
 	if err != nil {
 		return nil, err
 	}
