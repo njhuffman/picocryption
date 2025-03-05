@@ -53,12 +53,12 @@ func parseVersion(versionBytes []byte) (bool, string, error) {
 	return damaged, string(v), nil
 }
 
-type versionReader struct {
+type versionStream struct {
 	buff          buffer
 	damageTracker *damageTracker
 }
 
-func (v *versionReader) stream(p []byte) ([]byte, error) {
+func (v *versionStream) stream(p []byte) ([]byte, error) {
 	if !v.buff.isFull() {
 		p = v.buff.add(p)
 		if v.buff.isFull() {
@@ -76,21 +76,21 @@ func (v *versionReader) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func makeVersionReader(damageTracker *damageTracker) *versionReader {
-	return &versionReader{
+func makeVersionStream(damageTracker *damageTracker) *versionStream {
+	return &versionStream{
 		buff:          buffer{size: versionSize * 3},
 		damageTracker: damageTracker,
 	}
 }
 
-type deniabilityReader struct {
+type deniabilityStream struct {
 	password string
 	buff     buffer
 	deny     streamer
 	header   *header
 }
 
-func (d *deniabilityReader) stream(p []byte) ([]byte, error) {
+func (d *deniabilityStream) stream(p []byte) ([]byte, error) {
 	if !d.buff.isFull() {
 		p = d.buff.add(p)
 		if d.buff.isFull() {
@@ -124,8 +124,8 @@ func (d *deniabilityReader) stream(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-func makeDeniabilityReader(password string, header *header) *deniabilityReader {
-	return &deniabilityReader{
+func makeHeaderDeniabilityStream(password string, header *header) *deniabilityStream {
+	return &deniabilityStream{
 		password: password,
 		buff:     buffer{size: 16 + 24}, // 16 bytes for salt, 24 bytes for nonce
 		header:   header,
@@ -268,8 +268,8 @@ func makeHeaderStream(password string, header *header, damageTracker *damageTrac
 		return macTagStream.buff.isFull()
 	}
 	streams := []streamer{
-		makeDeniabilityReader(password, header),
-		makeVersionReader(damageTracker),
+		makeHeaderDeniabilityStream(password, header),
+		makeVersionStream(damageTracker),
 		makeCommentStream(header, damageTracker),
 		makeFlagStream(header, damageTracker),
 		makeSliceStream(header.seeds.Salt[:], damageTracker),
