@@ -81,12 +81,20 @@ func TestRSBodyMatch(t *testing.T) {
 
 	// should be able to encode it in any size chunks
 	chunks := chunk(origData)
+	encoder := makeRSEncodeStream()
 	encodedData := []byte{}
-	encoder := &rsBodyEncoder{}
 	for _, c := range chunks {
-		encodedData = append(encodedData, encoder.encode(c)...)
+		p, err := encoder.stream(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodedData = append(encodedData, p...)
 	}
-	encodedData = append(encodedData, encoder.flush()...)
+	p, err := encoder.flush()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedData = append(encodedData, p...)
 
 	// sanity check the size of encodedData
 	numChunks := len(origData)/128 + 1
@@ -94,47 +102,50 @@ func TestRSBodyMatch(t *testing.T) {
 		t.Fatal("Encoded wrong number of chunks")
 	}
 
-	fullDecode := func(data []byte) ([]byte, bool, bool, error) {
+	damageTracker := damageTracker{}
+	fullDecode := func(data []byte) ([]byte, bool) {
 		// should be able to decode in any size chunks
-		decoder := &rsBodyDecoder{}
+		decoder := makeRSDecodeStream(false, &damageTracker)
 		decodedData := []byte{}
-		var decodeErr error
 		decodeChunks := chunk(data)
 		for _, c := range decodeChunks {
-			data, damaged, corrupted, err := decoder.decode(c)
+			p, err := decoder.stream(c)
 			if err != nil {
-				return nil, damaged, corrupted, err
+				t.Fatal(err)
 			}
-			decodedData = append(decodedData, data...)
+			decodedData = append(decodedData, p...)
 		}
-		data, damaged, corrupted, err := decoder.flush()
+		p, err := decoder.flush()
 		if err != nil {
-			return nil, damaged, corrupted, err
+			t.Fatal(err)
 		}
-		decodedData = append(decodedData, data...)
-		return decodedData, damaged, corrupted, decodeErr
+		decodedData = append(decodedData, p...)
+		return decodedData, damageTracker.damage
 	}
 
 	// decoding the encoded data should work without error
-	decodedData, _, _, err := fullDecode(encodedData)
-	if err != nil {
-		t.Fatal(err)
-	}
+	decodedData, _ := fullDecode(encodedData)
 	if !bytes.Equal(origData, decodedData) {
 		t.Fatal("Original data differs from decoded data")
 	}
 
 	// decoded slightly damaged data should work
 	encodedData[5] = encodedData[5] + 1
-	decodedData, _, _, _ = fullDecode(encodedData)
+	decodedData, damaged := fullDecode(encodedData)
 	if !bytes.Equal(origData, decodedData) {
 		t.Fatal("Original data differs from decoded data")
+	}
+	if !damaged {
+		t.Fatal("Should be damaged")
 	}
 
 	// a large error is irrecoverable
 	rand.Read(encodedData[:])
-	_, _, corrupted, _ := fullDecode(encodedData)
-	if !corrupted {
+	decodedData, damaged = fullDecode(encodedData)
+	if bytes.Equal(origData, decodedData) {
+		t.Fatal("Original data should differ from decoded data")
+	}
+	if !damaged {
 		t.Fatal("Should be corrupted")
 	}
 }

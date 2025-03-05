@@ -24,7 +24,7 @@ type ivManager interface {
 type nonceIvManager struct {
 	chachaNonces [][24]byte
 	serpentIVs   [][16]byte
-	seeds *seeds
+	seeds        *seeds
 	hkdf         io.Reader
 }
 
@@ -170,9 +170,9 @@ func (rc *rotatingCipher) stream(p []byte) ([]byte, error) {
 	}
 	i := int64(0)
 	for i < int64(len(p)) {
-		j := int64(len(p))-i
-		if j > (resetNonceAt-rc.writtenCounter) {
-			j = resetNonceAt-rc.writtenCounter
+		j := int64(len(p)) - i
+		if j > (resetNonceAt - rc.writtenCounter) {
+			j = resetNonceAt - rc.writtenCounter
 		}
 		err := rc.xor(p[i : i+j])
 		if err != nil {
