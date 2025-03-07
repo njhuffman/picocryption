@@ -76,6 +76,14 @@ func hasDuplicates(hashes [][32]byte) bool {
 	return false
 }
 
+
+var argonKey = func(password string, salt [16]byte, iterations uint32, parallelism uint8) [32]byte{
+	var key [32]byte
+	copy(key[:], argon2.IDKey([]byte(password), salt[:], iterations, 1<<20, parallelism, 32))
+	return key
+}
+
+
 func generatePasswordKey(password string, salt [16]byte, paranoid bool) [32]byte {
 	iterations := uint32(4)
 	parallelism := uint8(4)
@@ -83,15 +91,11 @@ func generatePasswordKey(password string, salt [16]byte, paranoid bool) [32]byte
 		iterations = 8
 		parallelism = 8
 	}
-	var key [32]byte
-	copy(key[:], argon2.IDKey([]byte(password), salt[:], iterations, 1<<20, parallelism, 32))
-	return key
+	return argonKey(password, salt, iterations, parallelism)
 }
 
 func generateDenyKey(password string, salt [16]byte) [32]byte {
-	var key [32]byte
-	copy(key[:], argon2.IDKey([]byte(password), salt[:], 4, 1<<20, 4, 32))
-	return key
+	return argonKey(password, salt, 4, 4)
 }
 
 func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Reader) (keys, error) {
