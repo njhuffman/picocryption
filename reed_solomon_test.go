@@ -140,7 +140,7 @@ func TestRSBodyMatch(t *testing.T) {
 	}
 
 	// a large error is irrecoverable
-	rand.Read(encodedData[:])
+	rand.Read(encodedData[:chunkSize])
 	decodedData, damaged = fullDecode(encodedData)
 	if bytes.Equal(origData, decodedData) {
 		t.Fatal("Original data should differ from decoded data")
