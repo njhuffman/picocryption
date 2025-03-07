@@ -119,7 +119,6 @@ func makeExample(
 	if err != nil {
 		return Example{}, err
 	}
-	log.Println("Header:", header)
 	return Example{decrypted, encrypted, password, keyfiles, header}, nil
 }
 
@@ -152,7 +151,6 @@ func testEncryption(example Example, t *testing.T) {
 	if err != nil {
 		t.Fatal("encrypting data", err)
 	}
-	log.Println("Header bytes:", len(headerBytes))
 
 	headed := bytes.NewBuffer([]byte{})
 	err = PrependHeader(headless, headed, headerBytes)

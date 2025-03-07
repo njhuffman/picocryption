@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"io"
-	"log"
 	mrand "math/rand/v2"
 	"testing"
 	"golang.org/x/crypto/sha3"
@@ -161,7 +160,6 @@ func TestConsistencyReadSize(t *testing.T) {
 	for i, settings := range allSettings() {
 		for numKeyfiles := range 3 {
 			testConsistency(settings, readSize, numKeyfiles, t)
-			log.Println("Setting", i)
 		}
 	}
 }

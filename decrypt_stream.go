@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -330,16 +329,12 @@ func (ms *macStream) stream(p []byte) ([]byte, error) {
 func (ms *macStream) flush() ([]byte, error) {
 	m := ms.mac.Sum(nil)
 	if ms.encrypting {
-		log.Println("Saving mac tag")
 		copy(ms.header.refs.macTag[:], m)
 		return nil, nil
 	}
-	log.Println("Comparing mac tag")
 	if !hmac.Equal(m, ms.header.refs.macTag[:]) {
-		log.Println("Comparison failed")
 		return nil, ErrBodyCorrupted
 	}
-	log.Println("Comparison passed:", m)
 	return nil, nil
 }
 
