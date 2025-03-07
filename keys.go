@@ -1,26 +1,25 @@
 package picocryption
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
-	"bytes"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/sha3"
 )
 
-
 type keys struct {
-	key          [32]byte
-	macKey       [32]byte
-	serpentKey   [32]byte
-	denyKey      [32]byte
-	hkdf         io.Reader
-	keyRef       [64]byte
-	keyfileRef   [32]byte
+	key        [32]byte
+	macKey     [32]byte
+	serpentKey [32]byte
+	denyKey    [32]byte
+	hkdf       io.Reader
+	keyRef     [64]byte
+	keyfileRef [32]byte
 }
 
 func xor(a, b [32]byte) [32]byte {
@@ -63,7 +62,6 @@ func generateKeyfileKey(ordered bool, keyfiles []io.Reader) ([32]byte, error) {
 	return key, nil
 }
 
-
 func hasDuplicates(hashes [][32]byte) bool {
 	hashSet := make(map[string]struct{}, len(hashes))
 	for _, hash := range hashes {
@@ -76,13 +74,13 @@ func hasDuplicates(hashes [][32]byte) bool {
 	return false
 }
 
-
-var argonKey = func(password string, salt [16]byte, iterations uint32, parallelism uint8) [32]byte{
+func argon2IDKey(password string, salt [16]byte, iterations uint32, parallelism uint8) [32]byte {
 	var key [32]byte
 	copy(key[:], argon2.IDKey([]byte(password), salt[:], iterations, 1<<20, parallelism, 32))
 	return key
 }
 
+var argonKey = argon2IDKey
 
 func generatePasswordKey(password string, salt [16]byte, paranoid bool) [32]byte {
 	iterations := uint32(4)
@@ -135,13 +133,13 @@ func newKeys(settings Settings, seeds seeds, password string, keyfiles []io.Read
 	}
 
 	keys := keys{
-		key:          key,
-		macKey:       macKey,
-		serpentKey:   serpentKey,
-		denyKey:      denyKey,
-		hkdf:         hkdf,
-		keyRef:       keyRef,
-		keyfileRef:   keyfileRef,
+		key:        key,
+		macKey:     macKey,
+		serpentKey: serpentKey,
+		denyKey:    denyKey,
+		hkdf:       hkdf,
+		keyRef:     keyRef,
+		keyfileRef: keyfileRef,
 	}
 
 	if duplicateKeyfiles {
@@ -162,4 +160,3 @@ func computeHash(hasher hash.Hash, src io.Reader, dest []byte) error {
 	copy(dest, hasher.Sum(nil))
 	return nil
 }
-

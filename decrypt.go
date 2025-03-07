@@ -378,6 +378,9 @@ func (ds *decryptStream) stream(p []byte) ([]byte, error) {
 }
 
 func (ds *decryptStream) flush() ([]byte, error) {
+	if !ds.headerStream.isDone() {
+		return nil, ErrFileTooShort
+	}
 	if ds.bodyStreams == nil {
 		return nil, nil
 	}
