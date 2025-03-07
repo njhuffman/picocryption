@@ -5,10 +5,9 @@ Here are some block diagrams of how the code is structured. Not all details are 
 # Decryption
 ## Low Detail View
 
-Data is first passed through `Header Decryption` which is responsible for initializing the shared `Header` state with correct values, consuming all header-related bytes, and undoing any encryption from deniability mode. By the time data is passed out of `Header Decryption`, the `Header` object is fully initialized and ready to be used. Any encryption related errors or damaged bytes are reported to the shared `ErrHandler`.
+Data is first passed through `Header Decryption` which is responsible for initializing the shared `Header` state with correct values, consuming all header-related bytes, and undoing any encryption from deniability mode. By the time data is passed out of `Header Decryption`, the `Header` object is fully initialized and ready to be used. Any damaged bytes are reported to the shared `DamageTracker`.
 
-Data then passes through `Body Decryption` which is responsible for decoding the file data and checking it for correctness. The data output by `Body Decryption` is fully decoded. Any encryption related errors or damaged bytes
-are reported to the shared `ErrHandler`.
+Data then passes through `Body Decryption` which is responsible for decoding the file data and checking it for correctness. The data output by `Body Decryption` is fully decoded. Any damaged bytes are reported to the shared `DamageTracker`.
 
 ```mermaid
 flowchart TB
@@ -41,7 +40,7 @@ flowchart TB
   A[/Encrypted data/] --> SH --> SB --> B[/Decrypted data/]
 
   HEADER[(Header)]
-  ERR[(ErrHandler)]
+  DMG[(DamageTracker)]
 ```
 
 ## High Detail View
@@ -67,14 +66,14 @@ flowchart TB
     subgraph SH_S2[Header Fields]
       direction LR
       SH_S2_HEADER[(Header)]
-      SH_S2_ERR[(ErrHandler)]
+      SH_S2_DMG[(DamageTracker)]
       SH_S2_A[/Incoming bytes/] --> SH_S2_B{{"Loop over fields in [version, comments, flags, salt, hkdfSalt, serpentIV, nonce, keyRef, keyfileRef, macTag]"}}
       SH_S2_B --> |field| SH_S2_C{"Are bytes for field decodable?"}
       SH_S2_C --> |No| SH_S2_D(Consume all bytes)
-      SH_S2_D -.-> |damaged, ErrCorrupted| SH_S2_ERR
+      SH_S2_D -.-> |damaged| SH_S2_DMG
       SH_S2_C --> |Yes| SH_S2_E{Was error correction required?}
       SH_S2_E --> |Yes| SH_S2_F[Record damage]
-      SH_S2_F -.-> |damaged| SH_S2_ERR
+      SH_S2_F -.-> |damaged| SH_S2_DMG
       SH_S2_F --> SH_S2_G[Consume field bytes]
       SH_S2_E --> |No| SH_S2_G
       SH_S2_G --> SH_S2_B
@@ -93,7 +92,7 @@ flowchart TB
 
     subgraph SB_S1[ReedSolomon]
       SB_S1_HEADER[(Header)]
-      SB_S1_ERR[(ErrHandler)]
+      SB_S1_DMG[(DamageTracker)]
 
       SB_S1_A[/Incoming bytes/] --> SB_S1_B{Has Reed Solomon encoding?}
       SB_S1_B --> |Yes| SB_S1_C[Break into 136 byte chunks]
@@ -101,8 +100,8 @@ flowchart TB
       SB_S1_D --> SB_S1_E{Is chunk decodable?}
       SB_S1_E --> |Yes| SB_S1_F{Was error correction required?}
       SB_S1_F --> |Yes| SB_S1_G[Record damage]
-      SB_S1_G -.-> |damaged| SB_S1_ERR
-      SB_S1_I -.-> |damaged| SB_S1_ERR
+      SB_S1_G -.-> |damaged| SB_S1_DMG
+      SB_S1_I -.-> |damaged| SB_S1_DMG
       SB_S1_G --> SB_S1_H[\Outgoing bytes\]
       SB_S1_E --> |No| SB_S1_I[Use first bytes as best guess]
       SB_S1_I --> SB_S1_H
@@ -114,7 +113,7 @@ flowchart TB
     subgraph SB_S2[MAC]
       direction LR
       SB_S2_HEADER[(Header)]
-      SB_S2_ERR[(ErrHandler)]
+      SB_S2_DMG[(DamageTracker)]
       SB_S2_A[/Incoming bytes/] --> SB_S2_B{Encrypted with Paranoid mode?}
       SB_S2_B --> |Yes| SB_S2_C["Record to SHA3.512 (does not modify bytes)"]
       SB_S2_B --> |No| SB_S2_D["Record to Blake2 (does not modify bytes)"]
@@ -129,7 +128,7 @@ flowchart TB
       SB_S2_D -.-> |On flush| SB_S2_F
       SB_S2_F -.-> |Yes| SB_S2_G
       SB_S2_F -.-> |No| SB_S2_H
-      SB_S2_H -.-> |damaged, ErrCorrupted| SB_S2_ERR
+      SB_S2_H -.-> |damaged| SB_S2_DMG
 
       SB_S2_HEADER -.-> |paranoid| SB_S2_B
       SB_S2_HEADER -.-> |macTag| SB_S2_F
