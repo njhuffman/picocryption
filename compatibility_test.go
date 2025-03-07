@@ -8,7 +8,31 @@ import (
 	"log"
 	"os"
 	"testing"
+	"golang.org/x/crypto/argon2"
 )
+
+type keyArgs struct {
+	password string
+	salt [16]byte
+	iterations uint32
+	parallelism uint8
+}
+
+func lookupArgonKey(password string, salt [16]byte, iterations uint32, parallelism uint8) [32]byte{
+	table := make(map[keyArgs][32]byte)
+	args := keyArgs{password, salt, iterations, parallelism}
+	key, ok := table[args]
+	if !ok {
+		copy(key[:], argon2.IDKey([]byte(password), salt[:], iterations, 1<<20, parallelism, 32))
+		log.Println(password)
+		log.Println(salt)
+		log.Println(iterations)
+		log.Println(parallelism)
+		log.Println(key)
+		panic("no matching key in lookup table")
+	}
+	return key
+}
 
 type Example struct {
 	decrypted string
@@ -215,6 +239,7 @@ func getEncryptedData(example Example) ([]byte, error) {
 }
 
 func TestCompatibility001(t *testing.T) {
+	argonKey = lookupArgonKey
 	example, err := makeExample("empty.txt", "test001.txt.pcv", "abc123", []string{})
 	if err != nil {
 		t.Fatal("loading example:", err)
