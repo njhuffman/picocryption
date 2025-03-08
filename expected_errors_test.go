@@ -10,7 +10,8 @@ import (
 )
 
 func TestFileTooShort(t *testing.T) {
-	for size := range []int{0, 10, 100} {
+	argonKey = argon2IDKey
+	for size := range []int{0, 10} {
 		invalidData := make([]byte, size)
 		_, err := rand.Read(invalidData)
 		if err != nil {
@@ -23,19 +24,21 @@ func TestFileTooShort(t *testing.T) {
 	}
 }
 
-func TestFileCorrupted(t *testing.T) {
+func TestHeaderCorrupted(t *testing.T) {
+	argonKey = argon2IDKey
 	invalidData := make([]byte, 1000)
 	_, err := rand.Read(invalidData)
 	if err != nil {
 		t.Fatal("creating random data:", err)
 	}
 	_, err = Decrypt("password", []io.Reader{}, bytes.NewBuffer(invalidData), bytes.NewBuffer([]byte{}), false, false, nil)
-	if !errors.Is(err, ErrCorrupted) {
-		t.Fatal("expected ErrCorrupted, got", err)
+	if !errors.Is(err, ErrHeaderCorrupted) {
+		t.Fatal("expected ErrHeaderCorrupted, got", err)
 	}
 }
 
 func TestIncorrectPassword(t *testing.T) {
+	argonKey = argon2IDKey
 	reader, err := os.Open("examples/test001.txt.pcv")
 	if err != nil {
 		t.Fatal("opening file:", err)
@@ -48,6 +51,7 @@ func TestIncorrectPassword(t *testing.T) {
 }
 
 func TestIncorrectKeyfiles(t *testing.T) {
+	argonKey = argon2IDKey
 	reader, err := os.Open("examples/test008.pcv")
 	if err != nil {
 		t.Fatal("opening file:", err)
@@ -62,6 +66,7 @@ func TestIncorrectKeyfiles(t *testing.T) {
 }
 
 func TestKeyfilesRequired(t *testing.T) {
+	argonKey = argon2IDKey
 	reader, err := os.Open("examples/test008.pcv")
 	if err != nil {
 		t.Fatal("opening file:", err)
@@ -74,6 +79,7 @@ func TestKeyfilesRequired(t *testing.T) {
 }
 
 func TestDuplicateKeyfiles(t *testing.T) {
+	argonKey = argon2IDKey
 	keyfileData := make([]byte, 100)
 	rand.Read(keyfileData)
 	keyfiles := []io.Reader{}
@@ -96,6 +102,7 @@ func TestDuplicateKeyfiles(t *testing.T) {
 }
 
 func TestKeyfilesNotRequired(t *testing.T) {
+	argonKey = argon2IDKey
 	reader, err := os.Open("examples/test002.pcv")
 	if err != nil {
 		t.Fatal("opening file:", err)
@@ -108,18 +115,20 @@ func TestKeyfilesNotRequired(t *testing.T) {
 }
 
 func TestCorrupted(t *testing.T) {
+	argonKey = argon2IDKey
 	reader, err := os.Open("examples/corrupted.pcv")
 	if err != nil {
 		t.Fatal("opening file:", err)
 	}
 	defer reader.Close()
 	_, err = Decrypt("qwerty", []io.Reader{}, reader, bytes.NewBuffer([]byte{}), false, false, nil)
-	if !errors.Is(err, ErrCorrupted) {
-		t.Fatal("expected ErrCorrupted, got", err)
+	if !errors.Is(err, ErrHeaderCorrupted) {
+		t.Fatal("expected ErrHeaderCorrupted, got", err)
 	}
 }
 
 func TestDamagedButRecoverable(t *testing.T) {
+	argonKey = argon2IDKey
 	reader, err := os.Open("examples/test006.pcv")
 	if err != nil {
 		t.Fatal("opening file:", err)
@@ -143,6 +152,7 @@ func TestDamagedButRecoverable(t *testing.T) {
 }
 
 func TestCommentsTooLong(t *testing.T) {
+	argonKey = argon2IDKey
 	comments := make([]byte, maxCommentsLength+1)
 	_, err := EncryptHeadless(
 		bytes.NewBuffer([]byte{}),

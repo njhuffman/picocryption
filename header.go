@@ -1,12 +1,11 @@
 package picocryption
 
 import (
-	"errors"
 	"fmt"
+	"bytes"
+	"crypto/rand"
+	"encoding/binary"
 	"io"
-	"regexp"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -16,170 +15,88 @@ const (
 	flagsSize      = 5
 )
 
+type seeds struct {
+	// export to allow binary package to fill
+	Salt      [16]byte
+	Nonce     [24]byte
+	SerpentIV [16]byte
+	HkdfSalt  [32]byte
+	DenySalt  [16]byte
+	DenyNonce [24]byte
+}
+
+type refs struct {
+	keyRef     [64]byte
+	keyfileRef [32]byte
+	macTag     [64]byte
+}
+
 type header struct {
 	settings Settings
 	seeds    seeds
 	refs     refs
 	usesKf   bool
+	fileSize int64
 }
 
-func (header *header) size() int {
-	size := baseHeaderSize + 3*len(header.settings.Comments)
+func (header *header) bytes(password string) ([]byte, error) {
+	data := [][]byte{[]byte(picocryptVersion)}
+	data = append(data, []byte(fmt.Sprintf("%05d", len(header.settings.Comments))))
+	for _, c := range []byte(header.settings.Comments) {
+		data = append(data, []byte{c})
+	}
+	flags := []bool{
+		header.settings.Paranoid,
+		header.usesKf,
+		header.settings.OrderedKf,
+		header.settings.ReedSolomon,
+		header.fileSize%(1<<20) > (1<<20)-chunkSize,
+	}
+	flagBytes := make([]byte, len(flags))
+	for i, f := range flags {
+		if f {
+			flagBytes[i] = 1
+		}
+	}
+	data = append(data, flagBytes)
+	data = append(data, header.seeds.Salt[:])
+	data = append(data, header.seeds.HkdfSalt[:])
+	data = append(data, header.seeds.SerpentIV[:])
+	data = append(data, header.seeds.Nonce[:])
+	data = append(data, header.refs.keyRef[:])
+	data = append(data, header.refs.keyfileRef[:])
+	data = append(data, header.refs.macTag[:])
+
+	headerBytes := make([]byte, baseHeaderSize+3*len(header.settings.Comments))
+	written := 0
+	for _, d := range data {
+		err := rsEncode(headerBytes[written:written+len(d)*3], d)
+		if err != nil {
+			return nil, err
+		}
+		written += len(d) * 3
+	}
+
 	if header.settings.Deniability {
-		size += len(header.seeds.denySalt)
-		size += len(header.seeds.denyNonce)
-	}
-	return size
-}
-
-func readVersion(reader io.Reader, password string) (*deniability, bool, error) {
-	raw := make([]byte, versionSize*3)
-	n, err := io.ReadFull(reader, raw)
-	if n == 0 || errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, false, ErrFileTooShort
-	}
-	if err != nil {
-		return nil, false, err
-	}
-
-	version := make([]byte, versionSize)
-	damaged, rsErr := rsDecode(version, raw, false)
-	valid, rgErr := regexp.Match(`^v1\.\d{2}`, []byte(version))
-	if rgErr != nil {
-		return nil, damaged, fmt.Errorf("parsing version format: %w", rgErr)
-	}
-	if (rsErr == nil) && valid {
-		return nil, damaged, nil
-	}
-
-	// parsing version failed, assume deniability mode
-	var salt [16]byte
-	var nonce [24]byte
-	tmp := make([]byte, len(salt)+len(nonce))
-	copy(tmp, raw)
-	_, err = io.ReadFull(reader, tmp[len(raw):])
-	if err != nil {
-		return nil, false, err
-	}
-	copy(salt[:], tmp[:len(salt)])
-	copy(nonce[:], tmp[len(salt):])
-
-	deny, err := newDeniability(generateDenyKey(password, salt), nonce, salt, 0)
-	if err != nil {
-		return nil, false, fmt.Errorf("creating deniability cipher: %w", err)
-	}
-	raw = make([]byte, versionSize*3)
-	_, err = io.ReadFull(reader, raw)
-	if err != nil {
-		return nil, false, err
-	}
-	err = deny.deny(raw)
-	if err != nil {
-		return nil, false, err
-	}
-	version = make([]byte, versionSize)
-	damaged, err = rsDecode(version, raw, false)
-	if err != nil {
-		return nil, damaged, err
-	}
-	valid, _ = regexp.Match(`^v1\.\d{2}`, []byte(version))
-	if !valid {
-		return nil, true, ErrCorrupted
-	}
-	return deny, damaged, nil
-}
-
-func readFromHeader(reader io.Reader, size int, deny *deniability) ([]byte, bool, error) {
-	if size == 0 {
-		return []byte{}, false, nil
-	}
-	tmp := make([]byte, size*3)
-	n, err := io.ReadFull(reader, tmp)
-	tmp = tmp[:n]
-	if deny != nil {
-		denyErr := deny.deny(tmp)
-		if denyErr != nil {
-			return tmp, false, denyErr
-		}
-	}
-	if err != nil {
-		if errors.Is(err, io.ErrUnexpectedEOF) {
-			return tmp, false, ErrFileTooShort
-		}
-		return tmp, false, err
-	}
-	data := make([]byte, size)
-	damaged, err := rsDecode(data, tmp, false)
-	if errors.Is(err, ErrCorrupted) {
-		return tmp, damaged, err
-	}
-	return data, damaged, err
-}
-
-func readHeader(reader io.Reader, password string) (header, bool, error) {
-	deny, damaged, err := readVersion(reader, password)
-	if err != nil {
-		return header{}, damaged, fmt.Errorf("reading version: %w", err)
-	}
-
-	cLen, dmg, err := readFromHeader(reader, commentSize, deny)
-	if dmg {
-		damaged = true
-	}
-	if err != nil {
-		return header{}, damaged, fmt.Errorf("reading comment length: %w", err)
-	}
-	c, err := strconv.Atoi(string(cLen))
-	if err != nil {
-		return header{}, damaged, fmt.Errorf("parsing comment length: %w", err)
-	}
-	var builder strings.Builder
-	for i := 0; i < c; i++ {
-		n, dmg, err := readFromHeader(reader, 1, deny)
-		if dmg {
-			damaged = true
-		}
+		denyStream := newDeniabilityStream(password, header)
+		var err error
+		headerBytes, err = denyStream.stream(headerBytes)
 		if err != nil {
-			return header{}, damaged, fmt.Errorf("reading comments: %w", err)
+			return nil, fmt.Errorf("denying header data: %w", err)
 		}
-		builder.WriteByte(n[0])
-	}
-	comments := builder.String()
-
-	flags := [flagsSize]byte{}
-	seeds := seeds{}
-	refs := refs{}
-	loop := [][]byte{
-		flags[:],
-		seeds.salt[:], seeds.hkdfSalt[:], seeds.serpentIV[:], seeds.nonce[:],
-		refs.keyRef[:], refs.keyfileRef[:], refs.macTag[:],
-	}
-	for _, s := range loop {
-		h, dmg, err := readFromHeader(reader, len(s), deny)
-		if dmg {
-			damaged = true
-		}
-		if err != nil {
-			return header{}, false, fmt.Errorf("reading header fields: %w", err)
-		}
-		copy(s, h)
-	}
-	if deny != nil {
-		seeds.denyNonce = deny.nonce
-		seeds.denySalt = deny.salt
-	}
-	settings := Settings{
-		Comments:    comments,
-		ReedSolomon: flags[3] == 1,
-		Paranoid:    flags[0] == 1,
-		OrderedKf:   flags[2] == 1,
-		Deniability: deny != nil,
+		headerBytes = append(append(header.seeds.DenySalt[:], header.seeds.DenyNonce[:]...), headerBytes...)
 	}
 
-	return header{
-		settings: settings,
-		seeds:    seeds,
-		refs:     refs,
-		usesKf:   flags[1] == 1,
-	}, false, nil
+	return headerBytes, nil
+}
+
+func randomSeeds() (seeds, error) {
+	raw := make([]byte, binary.Size(seeds{}))
+	_, err := io.ReadFull(rand.Reader, raw)
+	if err != nil {
+		return seeds{}, err
+	}
+	decoded := seeds{}
+	err = binary.Read(bytes.NewBuffer(raw), binary.BigEndian, &decoded)
+	return decoded, err
 }

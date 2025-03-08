@@ -2,7 +2,6 @@ package picocryption
 
 import (
 	"crypto/cipher"
-	"errors"
 	"fmt"
 	"io"
 
@@ -13,141 +12,215 @@ import (
 
 const resetNonceAt = int64(60 * (1 << 30))
 
-func min(a, b int64) int64 {
-	if a < b {
-		return a
+type nonceManager interface {
+	nonce(i int) ([24]byte, error)
+}
+
+type ivManager interface {
+	iv(i int) ([16]byte, error)
+}
+
+type nonceIvManager struct {
+	chachaNonces [][24]byte
+	serpentIVs   [][16]byte
+	seeds        *seeds
+	hkdf         io.Reader
+}
+
+func (nm *nonceIvManager) extendTo(i int) error {
+	if len(nm.chachaNonces) == 0 {
+		nm.chachaNonces = [][24]byte{nm.seeds.Nonce}
+		nm.serpentIVs = [][16]byte{nm.seeds.SerpentIV}
 	}
-	return b
-}
-
-type encryptionCipher struct {
-	chacha       *chacha20.Cipher
-	serpentBlock cipher.Block
-	serpent      cipher.Stream
-	keys         keys
-	counter      int64
-}
-
-func (ec *encryptionCipher) encode(dst, src []byte) error {
-	i := int64(0)
-	for i < int64(len(src)) {
-		j := min(int64(len(src))-i, resetNonceAt-ec.counter)
-		ec.chacha.XORKeyStream(dst[i:i+j], src[i:i+j])
-		if ec.keys.settings.Paranoid {
-			ec.serpent.XORKeyStream(dst[i:i+j], dst[i:i+j])
-		}
-		err := ec.updateCounter(j)
+	for i >= len(nm.chachaNonces) {
+		chachaNonce := [24]byte{}
+		serpentIV := [16]byte{}
+		_, err := io.ReadFull(nm.hkdf, chachaNonce[:])
 		if err != nil {
-			return fmt.Errorf("updating encryption counter: %w", err)
+			return err
+		}
+		_, err = io.ReadFull(nm.hkdf, serpentIV[:])
+		if err != nil {
+			return err
+		}
+		nm.chachaNonces = append(nm.chachaNonces, chachaNonce)
+		nm.serpentIVs = append(nm.serpentIVs, serpentIV)
+	}
+	return nil
+}
+
+func (nm *nonceIvManager) nonce(i int) ([24]byte, error) {
+	err := nm.extendTo(i)
+	if err != nil {
+		return [24]byte{}, err
+	}
+	return nm.chachaNonces[i], nil
+}
+
+func (nm *nonceIvManager) iv(i int) ([16]byte, error) {
+	err := nm.extendTo(i)
+	if err != nil {
+		return [16]byte{}, err
+	}
+	return nm.serpentIVs[i], nil
+}
+
+func newNonceManager(hkdf io.Reader, seeds *seeds) *nonceIvManager {
+	nm := &nonceIvManager{
+		seeds: seeds,
+		hkdf:  hkdf,
+	}
+	return nm
+}
+
+type denyNonceManager struct {
+	nonces [][24]byte
+	header *header
+}
+
+func (dnm *denyNonceManager) extendTo(i int) error {
+	if len(dnm.nonces) == 0 {
+		dnm.nonces = append(dnm.nonces, dnm.header.seeds.DenyNonce)
+	}
+	for i >= len(dnm.nonces) {
+		previous := dnm.nonces[len(dnm.nonces)-1]
+		tmp := sha3.New256()
+		_, err := tmp.Write(previous[:])
+		if err != nil {
+			return err
+		}
+		nonce := [24]byte{}
+		copy(nonce[:], tmp.Sum(nil))
+		dnm.nonces = append(dnm.nonces, nonce)
+	}
+	return nil
+}
+
+func (dnm *denyNonceManager) nonce(i int) ([24]byte, error) {
+	err := dnm.extendTo(i)
+	if err != nil {
+		return [24]byte{}, err
+	}
+	return dnm.nonces[i], nil
+}
+
+type serpentCipher struct {
+	serpentBlock cipher.Block
+	cipher       cipher.Stream
+	ivManager    ivManager
+	header       *header
+}
+
+func (sc *serpentCipher) reset(i int) error {
+	serpentIV, err := sc.ivManager.iv(i)
+	if err != nil {
+		return err
+	}
+	sc.cipher = cipher.NewCTR(sc.serpentBlock, serpentIV[:])
+	return nil
+}
+
+func (sc *serpentCipher) xor(p []byte) {
+	sc.cipher.XORKeyStream(p, p)
+}
+
+type chachaCipher struct {
+	cipher       *chacha20.Cipher
+	nonceManager nonceManager
+	key          []byte
+}
+
+func (cc *chachaCipher) reset(i int) error {
+	nonce, err := cc.nonceManager.nonce(i)
+	if err != nil {
+		return err
+	}
+	cc.cipher, err = chacha20.NewUnauthenticatedCipher(cc.key[:], nonce[:])
+	return err
+}
+
+func (cc *chachaCipher) xor(p []byte) {
+	cc.cipher.XORKeyStream(p, p)
+}
+
+type xorCipher interface {
+	xor(p []byte)
+	reset(i int) error
+}
+
+type rotatingCipher struct {
+	xorCipher
+	writtenCounter int64
+	resetCounter   int
+	initialised    bool
+}
+
+func (rc *rotatingCipher) stream(p []byte) ([]byte, error) {
+	if !rc.initialised {
+		err := rc.xorCipher.reset(0)
+		if err != nil {
+			return nil, err
+		}
+		rc.initialised = true
+	}
+	i := int64(0)
+	for i < int64(len(p)) {
+		j := int64(len(p)) - i
+		if j > (resetNonceAt - rc.writtenCounter) {
+			j = resetNonceAt - rc.writtenCounter
+		}
+		rc.xor(p[i : i+j])
+		rc.writtenCounter += j
+		if rc.writtenCounter == resetNonceAt {
+			rc.writtenCounter = 0
+			rc.resetCounter++
+			err := rc.reset(rc.resetCounter)
+			if err != nil {
+				return nil, err
+			}
 		}
 		i += j
 	}
-	return nil
+	return p, nil
 }
 
-func (ec *encryptionCipher) updateCounter(length int64) error {
-	ec.counter += length
-	if ec.counter < resetNonceAt {
-		return nil
-	}
-	if ec.counter > resetNonceAt {
-		return errors.New("overshot counter target")
-	}
-	nonce := make([]byte, len(ec.keys.seeds.nonce))
-	_, err := io.ReadFull(ec.keys.hkdf, nonce)
-	if err != nil {
-		return fmt.Errorf("resetting nonce: %w", err)
-	}
-	ec.chacha, err = chacha20.NewUnauthenticatedCipher(ec.keys.key[:], nonce)
-	if err != nil {
-		return fmt.Errorf("creating chacha cipher: %w", err)
-	}
-	serpentIV := make([]byte, len(ec.keys.seeds.serpentIV))
-	_, err = io.ReadFull(ec.keys.hkdf, serpentIV)
-	if err != nil {
-		return fmt.Errorf("resetting serpentIV: %w", err)
-	}
-	ec.serpent = cipher.NewCTR(ec.serpentBlock, serpentIV)
-	ec.counter = 0
-	return nil
+func (rc *rotatingCipher) flush() ([]byte, error) {
+	return nil, nil
 }
 
-func newEncryptionCipher(keys keys) (*encryptionCipher, error) {
-	chacha, err := chacha20.NewUnauthenticatedCipher(keys.key[:], keys.seeds.nonce[:])
-	if err != nil {
-		return nil, fmt.Errorf("creating chacha20 cipher: %w", err)
+func newDeniabilityStream(password string, header *header) streamerFlusher {
+	nonceManager := denyNonceManager{header: header}
+	denyKey := generateDenyKey(password, header.seeds.DenySalt)
+	return &rotatingCipher{
+		xorCipher: &chachaCipher{
+			nonceManager: &nonceManager,
+			key:          denyKey[:],
+		},
+	}
+}
+
+func newEncryptionStreams(keys keys, header *header) ([]streamerFlusher, error) {
+	nonceIvManager := newNonceManager(keys.hkdf, &(header.seeds))
+	chachaStream := &rotatingCipher{
+		xorCipher: &chachaCipher{
+			nonceManager: nonceIvManager,
+			key:          keys.key[:],
+		},
+	}
+	if !header.settings.Paranoid {
+		return []streamerFlusher{chachaStream}, nil
 	}
 	sb, err := serpent.NewCipher(keys.serpentKey[:])
 	if err != nil {
 		return nil, fmt.Errorf("creating serpent cipher: %w", err)
 	}
-	s := cipher.NewCTR(sb, keys.seeds.serpentIV[:])
-	return &encryptionCipher{
-		chacha:       chacha,
-		serpentBlock: sb,
-		serpent:      s,
-		keys:         keys,
-		counter:      0,
-	}, nil
-}
-
-type deniability struct {
-	key     [32]byte
-	salt    [16]byte
-	nonce   [24]byte
-	chacha  *chacha20.Cipher
-	counter int64
-}
-
-func (deny *deniability) deny(p []byte) error {
-	i := int64(0)
-	for i < int64(len(p)) {
-		j := min(int64(len(p))-i, resetNonceAt-deny.counter)
-		deny.chacha.XORKeyStream(p[i:i+j], p[i:i+j])
-		err := deny.updateCounter(j)
-		if err != nil {
-			return fmt.Errorf("updating deniability counter: %w", err)
-		}
-		i += j
+	serpentStream := &rotatingCipher{
+		xorCipher: &serpentCipher{
+			serpentBlock: sb,
+			ivManager:    nonceIvManager,
+			header:       header,
+			cipher:       nil, // will be set during streaming
+		},
 	}
-	return nil
-}
-
-func (deny *deniability) updateCounter(length int64) error {
-	deny.counter += length
-	if deny.counter < resetNonceAt {
-		return nil
-	}
-	if deny.counter > resetNonceAt {
-		return errors.New("overshot counter target")
-	}
-	tmp := sha3.New256()
-	_, err := tmp.Write(deny.nonce[:])
-	if err != nil {
-		return fmt.Errorf("writing new nonce: %w", err)
-	}
-	copy(deny.nonce[:], tmp.Sum(nil))
-	deny.chacha, err = chacha20.NewUnauthenticatedCipher(deny.key[:], deny.nonce[:])
-	if err != nil {
-		return fmt.Errorf("creating chacha cipher: %w", err)
-	}
-	deny.counter = 0
-	return nil
-}
-
-func newDeniability(key [32]byte, nonce [24]byte, salt [16]byte, offset int) (*deniability, error) {
-	chacha, err := chacha20.NewUnauthenticatedCipher(key[:], nonce[:])
-	if err != nil {
-		return nil, fmt.Errorf("creating chacha cipher: %w", err)
-	}
-	deny := &deniability{
-		key:     key,
-		salt:    salt,
-		nonce:   nonce,
-		chacha:  chacha,
-		counter: 0,
-	}
-	tmp := make([]byte, offset)
-	deny.deny(tmp)
-	return deny, nil
+	return []streamerFlusher{chachaStream, serpentStream}, nil
 }

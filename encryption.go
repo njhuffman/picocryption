@@ -17,7 +17,8 @@ var ErrIncorrectOrMisorderedKeyfiles = errors.New("incorrect or misordered keyfi
 var ErrKeyfilesRequired = errors.New("missing required keyfiles")
 var ErrDuplicateKeyfiles = errors.New("duplicate keyfiles")
 var ErrKeyfilesNotRequired = errors.New("keyfiles not required")
-var ErrCorrupted = errors.New("data corrupted beyond repair")
+var ErrHeaderCorrupted = errors.New("header corrupted")
+var ErrBodyCorrupted = errors.New("body corrupted")
 var ErrCommentsTooLong = errors.New("comments exceed maximum length")
 
 type Settings struct {
@@ -44,10 +45,8 @@ func Decrypt(
 	update chan Update,
 ) (bool, error) {
 
-	decryptor, damaged, err := newDecryptor(pw, kf, r, skipReedSolomon, update)
-	if err != nil {
-		return damaged, err
-	}
+	damageTracker := damageTracker{}
+	decryptStream := makeDecryptStream(pw, kf, &damageTracker)
 
 	getNow := func() float64 { return float64(time.Now().UnixMilli()) / 1000.0 }
 	start := getNow()
@@ -65,42 +64,55 @@ func Decrypt(
 		}
 
 		p := make([]byte, readSize)
-		ri, dmg, err := decryptor.read(p)
-		if dmg {
-			damaged = true
+		n, err := r.Read(p)
+		eof := false
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				eof = true
+			} else {
+				return false, fmt.Errorf("reading input: %w", err)
+			}
 		}
-		eof := errors.Is(err, io.EOF)
-		if (err != nil) && (err != io.EOF) {
-			if errors.Is(err, ErrCorrupted) && ignoreCorruption {
+		p, err = decryptStream.stream(p[:n])
+		if err != nil {
+			if errors.Is(err, ErrBodyCorrupted) && ignoreCorruption {
 				corruptionIgnored = true
 			} else {
-				return damaged, err
+				return damageTracker.damage, err
 			}
 		}
-		_, err = w.Write(p[:ri])
+		_, err = w.Write(p)
 		if err != nil {
-			return damaged, err
+			return damageTracker.damage, err
 		}
-		count += ri
-		total += ri
+		count += len(p)
+		total += len(p)
 		if eof {
 			if corruptionIgnored {
-				return damaged, ErrCorrupted
+				return damageTracker.damage, ErrBodyCorrupted
 			}
-			return damaged, nil
+			p, err := decryptStream.flush()
+			if err != nil {
+				return damageTracker.damage, err
+			}
+			_, err = w.Write(p)
+			if err != nil {
+				return damageTracker.damage, err
+			}
+			return damageTracker.damage, nil
 		}
 	}
 }
 
 func GetEncryptionSettings(r io.Reader) (Settings, error) {
-	header, _, err := readHeader(r, "")
-	if err == nil {
-		return header.settings, nil
-	}
-	if errors.Is(err, ErrCorrupted) {
+	header, err := getHeader(r, "")
+	if errors.Is(err, ErrFileTooShort) {
 		return Settings{Deniability: true}, nil
 	}
-	return Settings{}, fmt.Errorf("reading header: %w", err)
+	if err != nil {
+		return Settings{}, fmt.Errorf("reading header: %w", err)
+	}
+	return header.settings, nil
 }
 
 func EncryptHeadless(
@@ -122,9 +134,9 @@ func EncryptHeadless(
 		return nil, fmt.Errorf("generating seeds: %w", err)
 	}
 
-	encryptor, err := newEncryptor(out, settings, seeds, password, keyfiles)
+	encryptionStream, err := makeEncryptStream(settings, seeds, password, keyfiles)
 	if err != nil {
-		return nil, fmt.Errorf("creating encryptor: %w", err)
+		return nil, fmt.Errorf("making encryption stream: %w", err)
 	}
 
 	getNow := func() float64 { return float64(time.Now().UnixMilli()) / 1000.0 }
@@ -152,25 +164,33 @@ func EncryptHeadless(
 		}
 		count += n
 		total += n
-		err = encryptor.write(buf[:n])
+		p, err := encryptionStream.stream(buf[:n])
 		if err != nil {
 			return nil, fmt.Errorf("encrypting input: %w", err)
+		}
+		_, err = out.Write(p)
+		if err != nil {
+			return nil, fmt.Errorf("writing output: %w", err)
 		}
 		if eof {
 			break
 		}
 	}
 
-	err = encryptor.close()
+	p, err := encryptionStream.flush()
 	if err != nil {
 		return nil, fmt.Errorf("closing encryptor: %w", err)
 	}
-
-	header, err := encryptor.makeHeader()
+	_, err = out.Write(p)
 	if err != nil {
-		return header, fmt.Errorf("making header: %w", err)
+		return nil, fmt.Errorf("writing output: %w", err)
 	}
-	return header, nil
+
+	headerBytes, err := encryptionStream.header.bytes(password)
+	if err != nil {
+		return nil, fmt.Errorf("making header: %w", err)
+	}
+	return headerBytes, nil
 }
 
 func PrependHeader(
@@ -207,7 +227,7 @@ func PrependHeader(
 func HeaderSize(settings Settings) int {
 	size := baseHeaderSize + 3*len(settings.Comments)
 	if settings.Deniability {
-		size += len(seeds{}.denyNonce) + len(seeds{}.denySalt)
+		size += len(seeds{}.DenyNonce) + len(seeds{}.DenySalt)
 	}
 	return size
 }

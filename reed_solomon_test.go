@@ -3,7 +3,6 @@ package picocryption
 import (
 	"bytes"
 	"crypto/rand"
-	"errors"
 	"testing"
 )
 
@@ -34,7 +33,7 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	recover := make([]byte, len(data))
-	damaged, err := rsDecode(recover, dataRS, false)
+	damaged, _, err := rsDecode(recover, dataRS, false)
 	if damaged {
 		t.Fatal("data should not be damaged")
 	}
@@ -46,7 +45,7 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	dataRS[0] = dataRS[0] + 1 // slightly damage data
-	damaged, err = rsDecode(recover, dataRS, false)
+	damaged, _, err = rsDecode(recover, dataRS, false)
 	if !damaged {
 		t.Fatal("should be damaged")
 	}
@@ -58,12 +57,15 @@ func TestRSEncodeDecodeMatch(t *testing.T) {
 	}
 
 	rand.Read(dataRS[:]) // major damage
-	damaged, err = rsDecode(recover, dataRS, false)
+	damaged, corrupted, err := rsDecode(recover, dataRS, false)
 	if !damaged {
 		t.Fatal("should be damaged")
 	}
-	if !errors.Is(err, ErrCorrupted) {
+	if !corrupted {
 		t.Fatal("should be corrupted")
+	}
+	if err != nil {
+		t.Fatal("should be no error, got", err)
 	}
 	if bytes.Equal(data, recover) {
 		t.Fatal("data shouldn't match")
@@ -79,12 +81,20 @@ func TestRSBodyMatch(t *testing.T) {
 
 	// should be able to encode it in any size chunks
 	chunks := chunk(origData)
+	encoder := makeRSEncodeStream()
 	encodedData := []byte{}
-	encoder := &rsBodyEncoder{}
 	for _, c := range chunks {
-		encodedData = append(encodedData, encoder.encode(c)...)
+		p, err := encoder.stream(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodedData = append(encodedData, p...)
 	}
-	encodedData = append(encodedData, encoder.flush()...)
+	p, err := encoder.flush()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedData = append(encodedData, p...)
 
 	// sanity check the size of encodedData
 	numChunks := len(origData)/128 + 1
@@ -92,47 +102,50 @@ func TestRSBodyMatch(t *testing.T) {
 		t.Fatal("Encoded wrong number of chunks")
 	}
 
-	fullDecode := func(data []byte) ([]byte, error) {
+	damageTracker := damageTracker{}
+	fullDecode := func(data []byte) ([]byte, bool) {
 		// should be able to decode in any size chunks
-		decoder := &rsBodyDecoder{}
+		decoder := makeRSDecodeStream(false, &damageTracker)
 		decodedData := []byte{}
-		var decodeErr error
 		decodeChunks := chunk(data)
 		for _, c := range decodeChunks {
-			data, _, err := decoder.decode(c)
+			p, err := decoder.stream(c)
 			if err != nil {
-				decodeErr = err
+				t.Fatal(err)
 			}
-			decodedData = append(decodedData, data...)
+			decodedData = append(decodedData, p...)
 		}
-		data, _, err := decoder.flush()
+		p, err := decoder.flush()
 		if err != nil {
-			decodeErr = err
+			t.Fatal(err)
 		}
-		decodedData = append(decodedData, data...)
-		return decodedData, decodeErr
+		decodedData = append(decodedData, p...)
+		return decodedData, damageTracker.damage
 	}
 
 	// decoding the encoded data should work without error
-	decodedData, err := fullDecode(encodedData)
-	if err != nil {
-		t.Fatal(err)
-	}
+	decodedData, _ := fullDecode(encodedData)
 	if !bytes.Equal(origData, decodedData) {
 		t.Fatal("Original data differs from decoded data")
 	}
 
 	// decoded slightly damaged data should work
 	encodedData[5] = encodedData[5] + 1
-	decodedData, _ = fullDecode(encodedData)
+	decodedData, damaged := fullDecode(encodedData)
 	if !bytes.Equal(origData, decodedData) {
 		t.Fatal("Original data differs from decoded data")
 	}
+	if !damaged {
+		t.Fatal("Should be damaged")
+	}
 
 	// a large error is irrecoverable
-	rand.Read(encodedData[:])
-	_, err = fullDecode(encodedData)
-	if !errors.Is(err, ErrCorrupted) {
-		t.Fatal(err)
+	rand.Read(encodedData[:chunkSize])
+	decodedData, damaged = fullDecode(encodedData)
+	if bytes.Equal(origData, decodedData) {
+		t.Fatal("Original data should differ from decoded data")
+	}
+	if !damaged {
+		t.Fatal("Should be corrupted")
 	}
 }
